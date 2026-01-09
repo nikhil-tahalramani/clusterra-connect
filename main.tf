@@ -1,31 +1,9 @@
-# Clusterra Connect - Customer Onboarding
-#
-# This single file creates everything needed to connect your existing
-# ParallelCluster to Clusterra's control plane.
-#
-# Prerequisites:
-#   - An existing AWS ParallelCluster
-#   - slurmrestd enabled and listening on port 6820
-#   - OpenTOFU or Terraform installed
-#
-# Usage:
-#   1. Copy this file to your infrastructure directory
-#   2. Edit terraform.tfvars (see example below)
-#   3. Run: tofu init && tofu apply
-#   4. Copy the outputs to Clusterra console
-#
-# ─────────────────────────────────────────────────────────────────────────────
-
 terraform {
   required_version = ">= 1.5"
   required_providers {
     aws = {
       source  = "hashicorp/aws"
       version = ">= 5.0"
-    }
-    random = {
-      source  = "hashicorp/random"
-      version = ">= 3.0"
     }
   }
 }
@@ -35,202 +13,126 @@ provider "aws" {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# VARIABLES - Set these in terraform.tfvars
+# VARIABLES
 # ─────────────────────────────────────────────────────────────────────────────
 
 variable "region" {
-  description = "AWS region where your ParallelCluster runs"
+  description = "AWS region"
   type        = string
+  default     = "ap-south-1"
+}
+
+variable "deploy_new_cluster" {
+  description = "Set to true to generate ParallelCluster configuration and deployment scripts"
+  type        = bool
+  default     = false
 }
 
 variable "cluster_name" {
-  description = "Name of your ParallelCluster"
+  description = "Name of the ParallelCluster (existing or new)"
   type        = string
 }
 
 variable "vpc_id" {
-  description = "VPC ID where ParallelCluster runs"
+  description = "VPC ID"
   type        = string
 }
 
 variable "subnet_id" {
-  description = "Subnet ID where the head node runs"
+  description = "Subnet ID"
   type        = string
 }
 
-variable "slurm_jwt_secret_name" {
-  description = "Name of the Secrets Manager secret containing your Slurm JWT key"
+# New Cluster Settings (Optional)
+variable "head_node_instance_type" {
+  description = "Head node instance type (for new clusters)"
   type        = string
-  default     = "slurm-jwt-key"
+  default     = "t3.small"
+}
+
+variable "compute_instance_type" {
+  description = "Compute node instance type (for new clusters)"
+  type        = string
+  default     = "c5.large"
+}
+
+variable "ssh_key_name" {
+  description = "SSH key name (for new clusters)"
+  type        = string
+  default     = "clusterra-headnode-key"
+}
+
+variable "min_count" {
+  description = "Min compute nodes"
+  type        = number
+  default     = 0
+}
+
+variable "max_count" {
+  description = "Max compute nodes"
+  type        = number
+  default     = 10
+}
+
+# Connectivity Settings
+variable "slurm_jwt_secret_name" {
+  type    = string
+  default = "clusterra-slurm-jwt-key"
 }
 
 variable "slurm_api_port" {
-  description = "Port where slurmrestd listens"
-  type        = number
-  default     = 6820
+  type    = number
+  default = 6830
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CONSTANTS
+# MODULES
 # ─────────────────────────────────────────────────────────────────────────────
 
-locals {
-  clusterra_account_id = "306847926740"
+module "parallelcluster" {
+  count = var.deploy_new_cluster ? 1 : 0
+
+  source = "./modules/parallelcluster"
+
+  cluster_name           = var.cluster_name
+  region                 = var.region
+  vpc_id                 = var.vpc_id
+  subnet_id              = var.subnet_id
+  ssh_key_name           = var.ssh_key_name
+  head_node_instance_type = var.head_node_instance_type
+  compute_instance_type   = var.compute_instance_type
+  min_count              = var.min_count
+  max_count              = var.max_count
+  slurm_jwt_secret_name  = var.slurm_jwt_secret_name
+}
+
+module "connectivity" {
+  # If creating a new cluster, user must run pcluster create separately first.
+  # So we always deploy this, but it will fail if cluster doesn't exist yet.
+  source = "./modules/connectivity"
+
+  region               = var.region
+  cluster_name         = var.cluster_name
+  vpc_id               = var.vpc_id
+  subnet_id            = var.subnet_id
+  slurm_jwt_secret_name = var.slurm_jwt_secret_name
+  slurm_api_port        = var.slurm_api_port
+  
+  # Does not auto-wire IP from module.parallelcluster because it doesn't run create.
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# DATA SOURCES
+# OUTPUTS
 # ─────────────────────────────────────────────────────────────────────────────
 
-data "aws_caller_identity" "current" {}
-data "aws_region" "current" {}
-
-# Find the head node by ParallelCluster tags
-data "aws_instances" "head_node" {
-  filter {
-    name   = "tag:parallelcluster:cluster-name"
-    values = [var.cluster_name]
-  }
-  filter {
-    name   = "tag:parallelcluster:node-type"
-    values = ["HeadNode"]
-  }
-  filter {
-    name   = "instance-state-name"
-    values = ["running"]
-  }
+output "pcluster_config_path" {
+  value = var.deploy_new_cluster ? module.parallelcluster[0].cluster_config_path : null
 }
 
-# Generate a unique customer ID
-resource "random_id" "customer" {
-  byte_length = 4
+output "deploy_command" {
+  value = var.deploy_new_cluster ? module.parallelcluster[0].deploy_command : null
 }
-
-locals {
-  customer_id = "cust-${random_id.customer.hex}"
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
-# IAM ROLE - Allows Clusterra to fetch your Slurm JWT secret
-# ─────────────────────────────────────────────────────────────────────────────
-
-resource "aws_iam_role" "clusterra_access" {
-  name = "clusterra-access-${local.customer_id}"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Principal = {
-        AWS = "arn:aws:iam::${local.clusterra_account_id}:root"
-      }
-      Action = "sts:AssumeRole"
-      Condition = {
-        StringEquals = {
-          "sts:ExternalId" = "clusterra-${local.customer_id}"
-        }
-      }
-    }]
-  })
-
-  tags = {
-    Purpose   = "Clusterra cross-account access"
-    ManagedBy = "OpenTOFU"
-  }
-}
-
-resource "aws_iam_role_policy" "secrets_access" {
-  name = "clusterra-secrets-access"
-  role = aws_iam_role.clusterra_access.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["secretsmanager:GetSecretValue"]
-      Resource = ["arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:${var.slurm_jwt_secret_name}*"]
-    }]
-  })
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
-# NLB - Routes traffic to your head node's Slurm API
-# ─────────────────────────────────────────────────────────────────────────────
-
-resource "aws_lb" "slurm_api" {
-  name               = "clusterra-${local.customer_id}"
-  internal           = true
-  load_balancer_type = "network"
-  subnets            = [var.subnet_id]
-
-  tags = {
-    Name      = "clusterra-nlb-${local.customer_id}"
-    ManagedBy = "OpenTOFU"
-  }
-}
-
-resource "aws_lb_target_group" "slurm_api" {
-  name        = "clusterra-${local.customer_id}"
-  port        = var.slurm_api_port
-  protocol    = "TCP"
-  vpc_id      = var.vpc_id
-  target_type = "instance"
-
-  health_check {
-    protocol            = "TCP"
-    port                = var.slurm_api_port
-    healthy_threshold   = 2
-    unhealthy_threshold = 2
-    interval            = 30
-  }
-}
-
-resource "aws_lb_target_group_attachment" "head_node" {
-  target_group_arn = aws_lb_target_group.slurm_api.arn
-  target_id        = data.aws_instances.head_node.ids[0]
-  port             = var.slurm_api_port
-}
-
-resource "aws_lb_listener" "slurm_api" {
-  load_balancer_arn = aws_lb.slurm_api.arn
-  port              = var.slurm_api_port
-  protocol          = "TCP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.slurm_api.arn
-  }
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
-# VPC ENDPOINT SERVICE - Exposes NLB to Clusterra via PrivateLink
-# ─────────────────────────────────────────────────────────────────────────────
-
-resource "aws_vpc_endpoint_service" "slurm_api" {
-  acceptance_required        = false
-  network_load_balancer_arns = [aws_lb.slurm_api.arn]
-
-  allowed_principals = [
-    "arn:aws:iam::${local.clusterra_account_id}:root"
-  ]
-
-  tags = {
-    Name      = "clusterra-${local.customer_id}"
-    ManagedBy = "OpenTOFU"
-  }
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
-# OUTPUTS - Copy these to Clusterra console
-# ─────────────────────────────────────────────────────────────────────────────
 
 output "clusterra_onboarding" {
-  description = "Copy ALL of these values to Clusterra console"
-  value = {
-    aws_account_id        = data.aws_caller_identity.current.account_id
-    role_arn              = aws_iam_role.clusterra_access.arn
-    external_id           = "clusterra-${local.customer_id}"
-    vpc_endpoint_service  = aws_vpc_endpoint_service.slurm_api.service_name
-    slurm_jwt_secret_arn  = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:${var.slurm_jwt_secret_name}"
-  }
+  value = module.connectivity.clusterra_onboarding
 }

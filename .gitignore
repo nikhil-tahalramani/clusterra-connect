@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+crash.log
+
+# Secrets & Local Config
+terraform.tfvars
+cluster-config.yaml
+*.pem
+*.pub
+private_key
+generated/
+
+# Logs & Temporary
+*.log
+lambda-response.txt
+test-event.json
+test-*.sh
+*.yaml.deployed
+*.tfvars.deployed
