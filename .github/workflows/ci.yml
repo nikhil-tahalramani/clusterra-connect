@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+
+env:
+  TOFU_VERSION: "1.6.0"
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  validate-terraform:
+    name: Validate Terraform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+      
+      - name: Tofu Format Check
+        run: tofu fmt -check -recursive
+      
+      - name: Tofu Init (Root)
+        run: tofu init -backend=false
+      
+      - name: Tofu Validate (Root)
+        run: tofu validate
+      
+      - name: Tofu Init (Connect Module)
+        working-directory: modules/connect
+        run: tofu init -backend=false
+      
+      - name: Tofu Validate (Connect Module)
+        working-directory: modules/connect
+        run: tofu validate
+      
+      - name: Tofu Init (Events Module)
+        working-directory: modules/events
+        run: tofu init -backend=false
+      
+      - name: Tofu Validate (Events Module)
+        working-directory: modules/events
+        run: tofu validate
+
+  lint-python:
+    name: Lint Python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install ruff
+        run: pip install ruff
+      
+      - name: Lint Lambda Handler
+        run: ruff check modules/events/lambda/ --ignore E501
+
+  lint-shell:
+    name: Lint Shell Scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+      
+      - name: Lint Hook Scripts
+        run: shellcheck modules/events/hooks/*.sh || true
+
+  test-lambda:
+    name: Test Lambda
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install dependencies
+        run: pip install pytest boto3
+      
+      - name: Run Lambda Tests
+        working-directory: modules/events/lambda
+        run: |
+          # Create a simple test if none exists
+          if [ ! -f test_handler.py ]; then
+            echo "No tests found, skipping"
+          else
+            pytest test_handler.py -v
+          fi
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: .
+          framework: terraform
+          soft_fail: true
+          output_format: cli

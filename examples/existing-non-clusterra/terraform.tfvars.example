@@ -1,0 +1,12 @@
+region       = "ap-south-1"
+cluster_name = "my-existing-cluster"
+vpc_id       = "vpc-xxxxxxxxx"
+subnet_id    = "subnet-xxxxxxxxx"
+
+# Your existing slurmrestd JWT secret name
+slurm_jwt_secret_name = "my-slurm-jwt-key"
+slurm_api_port        = 6820
+
+# Add after registering in Clusterra console
+# cluster_id = "clus_xxxxxxxxxx"
+# tenant_id  = "ten_xxxxxxxxxx"

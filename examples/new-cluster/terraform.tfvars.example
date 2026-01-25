@@ -1,0 +1,9 @@
+region       = "ap-south-1"
+cluster_name = "my-hpc-cluster"
+vpc_id       = "vpc-xxxxxxxxx"
+subnet_id    = "subnet-xxxxxxxxx"
+ssh_key_name = "my-ssh-key"
+
+# Add these after registering in Clusterra console
+# cluster_id = "clus_xxxxxxxxxx"
+# tenant_id  = "ten_xxxxxxxxxx"

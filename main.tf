@@ -85,6 +85,25 @@ variable "slurm_api_port" {
   default = 6830
 }
 
+# Clusterra Settings
+variable "cluster_id" {
+  description = "Clusterra cluster ID (clus_xxx) - provided after registration"
+  type        = string
+  default     = ""
+}
+
+variable "tenant_id" {
+  description = "Clusterra tenant ID (ten_xxx)"
+  type        = string
+  default     = ""
+}
+
+variable "clusterra_api_url" {
+  description = "Clusterra API URL"
+  type        = string
+  default     = "https://api.clusterra.cloud"
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # MODULES
 # ─────────────────────────────────────────────────────────────────────────────
@@ -107,9 +126,7 @@ module "parallelcluster" {
 }
 
 module "connectivity" {
-  # If creating a new cluster, user must run pcluster create separately first.
-  # So we always deploy this, but it will fail if cluster doesn't exist yet.
-  source = "./modules/connectivity"
+  source = "./modules/connect"
 
   region               = var.region
   cluster_name         = var.cluster_name
@@ -117,8 +134,19 @@ module "connectivity" {
   subnet_id            = var.subnet_id
   slurm_jwt_secret_name = var.slurm_jwt_secret_name
   slurm_api_port        = var.slurm_api_port
-  
-  # Does not auto-wire IP from module.parallelcluster because it doesn't run create.
+}
+
+module "events" {
+  # Only deploy if cluster_id and tenant_id are set
+  count = var.cluster_id != "" && var.tenant_id != "" ? 1 : 0
+
+  source = "./modules/events"
+
+  cluster_name          = var.cluster_name
+  cluster_id            = var.cluster_id
+  tenant_id             = var.tenant_id
+  region                = var.region
+  clusterra_api_url     = var.clusterra_api_url
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -134,5 +162,16 @@ output "deploy_command" {
 }
 
 output "clusterra_onboarding" {
-  value = module.connectivity.clusterra_onboarding
+  description = "Values to provide to Clusterra for cluster registration"
+  value       = module.connectivity.clusterra_onboarding
+}
+
+output "events_sqs_url" {
+  description = "SQS queue URL for Slurm hooks (set after cluster_id/tenant_id are configured)"
+  value       = var.cluster_id != "" && var.tenant_id != "" ? module.events[0].sqs_queue_url : null
+}
+
+output "install_hooks_command" {
+  description = "Run this on head node to install event hooks"
+  value       = var.cluster_id != "" && var.tenant_id != "" ? module.events[0].install_hooks_command : null
 }
