@@ -22,17 +22,17 @@ variable "cluster_name" { type = string }
 variable "vpc_id" { type = string }
 variable "subnet_id" { type = string }
 variable "slurm_jwt_secret_name" { type = string }
-variable "slurm_api_port" { 
-  type    = number 
-  default = 6820 
+variable "slurm_api_port" {
+  type    = number
+  default = 6820
 }
-variable "cluster_id" { 
-  type    = string 
-  default = "" 
+variable "cluster_id" {
+  type    = string
+  default = ""
 }
-variable "tenant_id" { 
-  type    = string 
-  default = "" 
+variable "tenant_id" {
+  type    = string
+  default = ""
 }
 
 output "clusterra_onboarding" {

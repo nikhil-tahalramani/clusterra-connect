@@ -113,25 +113,25 @@ module "parallelcluster" {
 
   source = "./modules/parallelcluster"
 
-  cluster_name           = var.cluster_name
-  region                 = var.region
-  vpc_id                 = var.vpc_id
-  subnet_id              = var.subnet_id
-  ssh_key_name           = var.ssh_key_name
+  cluster_name            = var.cluster_name
+  region                  = var.region
+  vpc_id                  = var.vpc_id
+  subnet_id               = var.subnet_id
+  ssh_key_name            = var.ssh_key_name
   head_node_instance_type = var.head_node_instance_type
   compute_instance_type   = var.compute_instance_type
-  min_count              = var.min_count
-  max_count              = var.max_count
-  slurm_jwt_secret_name  = var.slurm_jwt_secret_name
+  min_count               = var.min_count
+  max_count               = var.max_count
+  slurm_jwt_secret_name   = var.slurm_jwt_secret_name
 }
 
 module "connectivity" {
   source = "./modules/connect"
 
-  region               = var.region
-  cluster_name         = var.cluster_name
-  vpc_id               = var.vpc_id
-  subnet_id            = var.subnet_id
+  region                = var.region
+  cluster_name          = var.cluster_name
+  vpc_id                = var.vpc_id
+  subnet_id             = var.subnet_id
   slurm_jwt_secret_name = var.slurm_jwt_secret_name
   slurm_api_port        = var.slurm_api_port
 }
@@ -142,11 +142,11 @@ module "events" {
 
   source = "./modules/events"
 
-  cluster_name          = var.cluster_name
-  cluster_id            = var.cluster_id
-  tenant_id             = var.tenant_id
-  region                = var.region
-  clusterra_api_url     = var.clusterra_api_url
+  cluster_name      = var.cluster_name
+  cluster_id        = var.cluster_id
+  tenant_id         = var.tenant_id
+  region            = var.region
+  clusterra_api_url = var.clusterra_api_url
 }
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -10,12 +10,12 @@ module "clusterra" {
   subnet_id    = var.subnet_id
 
   # New cluster settings
-  deploy_new_cluster       = true
-  head_node_instance_type  = "t3.medium"
-  compute_instance_type    = "c5.xlarge"
-  ssh_key_name             = var.ssh_key_name
-  min_count                = 0
-  max_count                = 10
+  deploy_new_cluster      = true
+  head_node_instance_type = "t3.medium"
+  compute_instance_type   = "c5.xlarge"
+  ssh_key_name            = var.ssh_key_name
+  min_count               = 0
+  max_count               = 10
 
   # Clusterra settings (add after registration)
   cluster_id = var.cluster_id
