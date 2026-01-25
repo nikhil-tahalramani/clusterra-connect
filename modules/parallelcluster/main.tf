@@ -88,6 +88,18 @@ variable "slurm_jwt_secret_name" {
   default     = "clusterra-slurm-jwt-key"
 }
 
+variable "kms_key_arn" {
+  description = "KMS key ARN for encryption (Secrets Manager, EFS). If not provided, uses AWS managed keys."
+  type        = string
+  default     = null
+}
+
+variable "vpc_cidr_block" {
+  description = "VPC CIDR block for restricting security group egress"
+  type        = string
+  default     = "10.0.0.0/8"
+}
+
 # ─── Data Sources ──────────────────────────────────────────────────────────
 
 data "aws_caller_identity" "current" {}
@@ -100,9 +112,13 @@ resource "random_password" "slurm_jwt_key" {
   special = false
 }
 
+# checkov:skip=CKV2_AWS_57:JWT signing keys are static secrets that don't require rotation
 resource "aws_secretsmanager_secret" "slurm_jwt" {
   name        = var.slurm_jwt_secret_name
   description = "Slurm JWT HS256 key for Clusterra authentication"
+
+  # CKV_AWS_149: Use KMS CMK for encryption
+  kms_key_id = var.kms_key_arn
   
   tags = {
     Purpose   = "Clusterra Slurm authentication"
@@ -122,6 +138,9 @@ resource "aws_efs_file_system" "shared" {
   
   creation_token = "${var.cluster_name}-efs"
   encrypted      = true
+
+  # CKV_AWS_184: Use KMS CMK for encryption
+  kms_key_id = var.kms_key_arn
   
   tags = {
     Name      = "${var.cluster_name}-shared"
@@ -141,22 +160,25 @@ resource "aws_security_group" "efs" {
   count = var.shared_storage_type == "efs" ? 1 : 0
   
   name        = "${var.cluster_name}-efs"
-  description = "EFS mount target security group"
+  description = "EFS mount target security group for ${var.cluster_name} cluster"
   vpc_id      = var.vpc_id
   
+  # CKV_AWS_23: Add descriptions to all rules
   ingress {
     from_port   = 2049
     to_port     = 2049
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-    description = "NFS"
+    cidr_blocks = [var.vpc_cidr_block]
+    description = "Allow NFS traffic from VPC for EFS mount"
   }
   
+  # CKV_AWS_382: Restrict egress to specific ports/destinations
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    from_port   = 2049
+    to_port     = 2049
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr_block]
+    description = "Allow NFS traffic to VPC for EFS communication"
   }
   
   tags = {
