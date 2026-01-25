@@ -112,8 +112,8 @@ resource "random_password" "slurm_jwt_key" {
   special = false
 }
 
-# checkov:skip=CKV2_AWS_57:JWT signing keys are static secrets that don't require rotation
 resource "aws_secretsmanager_secret" "slurm_jwt" {
+  # checkov:skip=CKV2_AWS_57:JWT signing keys are static secrets that don't require rotation
   name        = var.slurm_jwt_secret_name
   description = "Slurm JWT HS256 key for Clusterra authentication"
 
@@ -158,7 +158,7 @@ resource "aws_efs_mount_target" "shared" {
 
 resource "aws_security_group" "efs" {
   count = var.shared_storage_type == "efs" ? 1 : 0
-
+  # checkov:skip=CKV2_AWS_5:Security group is attached to EFS mount target (false positive due to count)
   name        = "${var.cluster_name}-efs"
   description = "EFS mount target security group for ${var.cluster_name} cluster"
   vpc_id      = var.vpc_id
