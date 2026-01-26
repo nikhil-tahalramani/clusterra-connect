@@ -25,7 +25,7 @@ terraform {
 # ─────────────────────────────────────────────────────────────────────────────
 
 locals {
-  cluster_short_id     = "cust-${substr(sha256(var.cluster_name), 0, 8)}"  # Short ID for AWS resources with name limits
+  cluster_short_id     = "cust-${substr(sha256(var.cluster_name), 0, 8)}" # Short ID for AWS resources with name limits
   clusterra_account_id = var.clusterra_account_id
 }
 
@@ -36,11 +36,11 @@ resource "random_id" "customer" {
 
 locals {
   customer_id = "cust-${random_id.customer.hex}"
-  
+
   # Use provided instance_id or look it up via tags
   target_instance_id = var.head_node_instance_id != "" ? var.head_node_instance_id : (
-    length(data.aws_instances.head_node) > 0 && length(data.aws_instances.head_node[0].ids) > 0 
-    ? data.aws_instances.head_node[0].ids[0] 
+    length(data.aws_instances.head_node) > 0 && length(data.aws_instances.head_node[0].ids) > 0
+    ? data.aws_instances.head_node[0].ids[0]
     : null
   )
 }
@@ -67,7 +67,7 @@ resource "aws_secretsmanager_secret" "slurm_jwt" {
   # checkov:skip=CKV_AWS_149:Default KMS key is sufficient
   name                    = "clusterra-slurm-jwt-${var.cluster_name}"
   description             = "Slurm JWT HS256 key for Clusterra authentication"
-  recovery_window_in_days = 30  # Production-safe: 30-day recovery window
+  recovery_window_in_days = 30 # Production-safe: 30-day recovery window
 
   tags = {
     Purpose   = "Clusterra Slurm authentication"
@@ -178,7 +178,7 @@ resource "aws_vpclattice_service_network_vpc_association" "head_node_vpc" {
 
 resource "aws_vpclattice_service" "slurm_api" {
   name      = "clusterra-slurm-${local.cluster_short_id}"
-  auth_type = "AWS_IAM"  # Use IAM for cross-account auth
+  auth_type = "AWS_IAM" # Use IAM for cross-account auth
 
   tags = {
     Name      = "clusterra-slurm-${local.customer_id}"
@@ -216,7 +216,7 @@ resource "aws_vpclattice_target_group" "slurm_api" {
     health_check {
       enabled                   = true
       protocol                  = "HTTP"
-      path                      = "/slurm/v0.0.42/ping"  # Slurmrestd health endpoint
+      path                      = "/slurm/v0.0.42/ping" # Slurmrestd health endpoint
       port                      = var.slurm_api_port
       healthy_threshold_count   = 2
       unhealthy_threshold_count = 3
@@ -251,7 +251,7 @@ resource "aws_vpclattice_target_group_attachment" "head_node" {
 
 resource "aws_vpclattice_listener" "slurm_api" {
   name               = "clusterra-listener-${local.cluster_short_id}"
-  protocol           = "HTTPS"  # TLS termination at Lattice (recommended for slurmrestd)
+  protocol           = "HTTPS" # TLS termination at Lattice (recommended for slurmrestd)
   port               = 443
   service_identifier = aws_vpclattice_service.slurm_api.id
 
@@ -282,8 +282,8 @@ resource "aws_vpclattice_auth_policy" "allow_clusterra" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid       = "AllowClusterraAccess"
-        Effect    = "Allow"
+        Sid    = "AllowClusterraAccess"
+        Effect = "Allow"
         Principal = {
           AWS = "arn:aws:iam::${local.clusterra_account_id}:root"
         }
@@ -300,7 +300,7 @@ resource "aws_vpclattice_auth_policy" "allow_clusterra" {
 
 resource "aws_ram_resource_share" "clusterra_service_network" {
   name                      = "clusterra-${var.cluster_name}"
-  allow_external_principals = true  # Allow sharing with Clusterra account
+  allow_external_principals = true # Allow sharing with Clusterra account
 
   tags = {
     Name      = "clusterra-ram-${var.cluster_name}"
@@ -414,9 +414,9 @@ resource "aws_iam_role_policy" "ec2_access" {
 output "clusterra_onboarding" {
   description = "Copy ALL of these values to Clusterra console or use for API registration"
   value = {
-    cluster_name               = var.cluster_name
-    region                     = data.aws_region.current.name
-    aws_account_id             = data.aws_caller_identity.current.account_id
+    cluster_name   = var.cluster_name
+    region         = data.aws_region.current.name
+    aws_account_id = data.aws_caller_identity.current.account_id
     # VPC Lattice endpoints (replaces vpc_endpoint_service)
     lattice_service_endpoint   = aws_vpclattice_service.slurm_api.dns_entry[0].domain_name
     lattice_service_network_id = aws_vpclattice_service_network.clusterra.id
