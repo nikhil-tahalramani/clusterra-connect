@@ -14,7 +14,7 @@ variable "vpc_id" {
 }
 
 variable "subnet_id" {
-  description = "Subnet ID for NLB (should be same as head node)"
+  description = "Subnet ID (same as head node)"
   type        = string
 }
 
@@ -28,4 +28,10 @@ variable "head_node_instance_id" {
   description = "Instance ID of head node (optional - auto-discovered via pcluster tags if not provided)"
   type        = string
   default     = ""
+}
+
+variable "clusterra_account_id" {
+  description = "Clusterra's AWS account ID for cross-account access"
+  type        = string
+  default     = "306847926740"
 }

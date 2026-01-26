@@ -175,3 +175,14 @@ output "install_hooks_command" {
   description = "Run this on head node to install event hooks"
   value       = var.cluster_id != "" && var.tenant_id != "" ? module.events[0].install_hooks_command : null
 }
+
+# VPC Lattice outputs (replaces PrivateLink outputs)
+output "lattice_service_endpoint" {
+  description = "VPC Lattice service DNS endpoint for Clusterra to connect"
+  value       = module.connectivity.lattice_service_endpoint
+}
+
+output "lattice_service_network_id" {
+  description = "VPC Lattice service network ID (shared via RAM with Clusterra)"
+  value       = module.connectivity.lattice_service_network_id
+}

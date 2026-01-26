@@ -1,8 +1,8 @@
-# Clusterra Connect Module
+# Clusterra Connect Module (VPC Lattice)
 #
-# Creates the PrivateLink connectivity layer for Clusterra to access the cluster's Slurm API:
-# 1. Network Load Balancer → Head Node port 6830 (slurmrestd)
-# 2. VPC Endpoint Service → Exposes NLB to Clusterra via PrivateLink
+# Creates the VPC Lattice connectivity layer for Clusterra to access the cluster's Slurm API:
+# 1. VPC Lattice Service → Head Node port 6830 (slurmrestd)
+# 2. VPC Lattice Service Network → Cross-account access via AWS RAM
 # 3. IAM Role → Allows Clusterra to assume role and read JWT secret
 #
 # Deployed in: CUSTOMER's AWS account
@@ -25,8 +25,8 @@ terraform {
 # ─────────────────────────────────────────────────────────────────────────────
 
 locals {
-  cluster_short_id = "cust-${substr(sha256(var.cluster_name), 0, 8)}"  # Short ID for AWS resources with name limits
-  clusterra_account_id = "306847926740"  # Clusterra's AWS account
+  cluster_short_id     = "cust-${substr(sha256(var.cluster_name), 0, 8)}"  # Short ID for AWS resources with name limits
+  clusterra_account_id = var.clusterra_account_id
 }
 
 # Generate a unique customer ID for resource naming
@@ -96,22 +96,36 @@ data "aws_instances" "head_node" {
   }
 }
 
+# Get head node instance details for IP-based target group
+data "aws_instance" "head_node" {
+  count       = local.target_instance_id != null ? 1 : 0
+  instance_id = local.target_instance_id
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # SECURITY GROUP
 # ─────────────────────────────────────────────────────────────────────────────
 
-resource "aws_security_group" "nlb_target" {
-  # checkov:skip=CKV2_AWS_5:Security group is attached to NLB target group
-  name        = "clusterra-nlb-sg-${var.cluster_name}"
-  description = "Allow slurmrestd traffic from NLB to head node"
+# Get VPC Lattice managed prefix list for security group rules
+data "aws_ec2_managed_prefix_list" "vpc_lattice" {
+  filter {
+    name   = "prefix-list-name"
+    values = ["com.amazonaws.${data.aws_region.current.name}.vpc-lattice"]
+  }
+}
+
+resource "aws_security_group" "lattice_target" {
+  # checkov:skip=CKV2_AWS_5:Security group is attached to head node for Lattice access
+  name        = "clusterra-lattice-sg-${var.cluster_name}"
+  description = "Allow slurmrestd traffic from VPC Lattice to head node"
   vpc_id      = var.vpc_id
 
   ingress {
-    from_port   = var.slurm_api_port
-    to_port     = var.slurm_api_port
-    protocol    = "tcp"
-    cidr_blocks = [data.aws_vpc.selected.cidr_block]
-    description = "Allow slurmrestd traffic from VPC (via NLB)"
+    from_port       = var.slurm_api_port
+    to_port         = var.slurm_api_port
+    protocol        = "tcp"
+    prefix_list_ids = [data.aws_ec2_managed_prefix_list.vpc_lattice.id]
+    description     = "Allow slurmrestd traffic from VPC Lattice"
   }
 
   egress {
@@ -123,94 +137,186 @@ resource "aws_security_group" "nlb_target" {
   }
 
   tags = {
-    Name      = "clusterra-nlb-sg-${var.cluster_name}"
+    Name      = "clusterra-lattice-sg-${var.cluster_name}"
     ManagedBy = "OpenTOFU"
     Cluster   = var.cluster_name
   }
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# NETWORK LOAD BALANCER
+# VPC LATTICE SERVICE NETWORK
 # ─────────────────────────────────────────────────────────────────────────────
 
-resource "aws_lb" "slurm_api" {
-  name               = "clusterra-nlb-${local.cluster_short_id}"  # Short ID for 32-char limit
-  internal           = true
-  load_balancer_type = "network"
-  subnets            = [var.subnet_id]
-
-  enable_deletion_protection = false
-
-  tags = {
-    Name      = "clusterra-nlb-${local.customer_id}"
-    ManagedBy = "OpenTOFU"
-    Cluster   = var.cluster_name
-  }
-}
-
-resource "aws_lb_target_group" "slurm_api" {
-  name        = "clusterra-tg-${local.cluster_short_id}"  # Short ID for 32-char limit
-  port        = var.slurm_api_port
-  protocol    = "TCP"
-  vpc_id      = var.vpc_id
-  target_type = "instance"
-
-  health_check {
-    enabled             = true
-    protocol            = "TCP"
-    port                = var.slurm_api_port
-    healthy_threshold   = 2
-    unhealthy_threshold = 2
-    interval            = 30
-  }
-
-  tags = {
-    Name      = "clusterra-tg-${var.cluster_name}"  # Use full name in tags for readability
-    ManagedBy = "OpenTOFU"
-  }
-}
-
-# Register head node as target (using instance ID)
-resource "aws_lb_target_group_attachment" "head_node" {
-  count = local.target_instance_id != null ? 1 : 0
-
-  target_group_arn = aws_lb_target_group.slurm_api.arn
-  target_id        = local.target_instance_id
-  port             = var.slurm_api_port
-}
-
-resource "aws_lb_listener" "slurm_api" {
-  load_balancer_arn = aws_lb.slurm_api.arn
-  port              = var.slurm_api_port
-  protocol          = "TCP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.slurm_api.arn
-  }
-
-  tags = {
-    Name      = "clusterra-listener-${local.customer_id}"
-    ManagedBy = "OpenTOFU"
-  }
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
-# VPC ENDPOINT SERVICE (PrivateLink)
-# ─────────────────────────────────────────────────────────────────────────────
-
-resource "aws_vpc_endpoint_service" "slurm_api" {
-  acceptance_required        = false  # Auto-accept from Clusterra
-  network_load_balancer_arns = [aws_lb.slurm_api.arn]
-
-  # Allow Clusterra's AWS account to create endpoints
-  allowed_principals = ["arn:aws:iam::${local.clusterra_account_id}:root"]
+resource "aws_vpclattice_service_network" "clusterra" {
+  name      = "clusterra-${local.cluster_short_id}"
+  auth_type = "AWS_IAM"
 
   tags = {
     Name      = "clusterra-${local.customer_id}"
     ManagedBy = "OpenTOFU"
     Cluster   = var.cluster_name
   }
+}
+
+# Associate the service network with the VPC
+resource "aws_vpclattice_service_network_vpc_association" "head_node_vpc" {
+  vpc_identifier             = var.vpc_id
+  service_network_identifier = aws_vpclattice_service_network.clusterra.id
+  security_group_ids         = [aws_security_group.lattice_target.id]
+
+  tags = {
+    Name      = "clusterra-vpc-assoc-${var.cluster_name}"
+    ManagedBy = "OpenTOFU"
+  }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VPC LATTICE SERVICE
+# ─────────────────────────────────────────────────────────────────────────────
+
+resource "aws_vpclattice_service" "slurm_api" {
+  name      = "clusterra-slurm-${local.cluster_short_id}"
+  auth_type = "AWS_IAM"  # Use IAM for cross-account auth
+
+  tags = {
+    Name      = "clusterra-slurm-${local.customer_id}"
+    ManagedBy = "OpenTOFU"
+    Cluster   = var.cluster_name
+  }
+}
+
+# Associate service with service network
+resource "aws_vpclattice_service_network_service_association" "slurm_api" {
+  service_identifier         = aws_vpclattice_service.slurm_api.id
+  service_network_identifier = aws_vpclattice_service_network.clusterra.id
+
+  tags = {
+    Name      = "clusterra-svc-assoc-${var.cluster_name}"
+    ManagedBy = "OpenTOFU"
+  }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VPC LATTICE TARGET GROUP
+# ─────────────────────────────────────────────────────────────────────────────
+
+resource "aws_vpclattice_target_group" "slurm_api" {
+  name = "clusterra-tg-${local.cluster_short_id}"
+  type = "IP"
+
+  config {
+    port             = var.slurm_api_port
+    protocol         = "HTTP"
+    vpc_identifier   = var.vpc_id
+    ip_address_type  = "IPV4"
+    protocol_version = "HTTP1"
+
+    health_check {
+      enabled                   = true
+      protocol                  = "HTTP"
+      path                      = "/slurm/v0.0.42/ping"  # Slurmrestd health endpoint
+      port                      = var.slurm_api_port
+      healthy_threshold_count   = 2
+      unhealthy_threshold_count = 3
+      matcher {
+        value = "200"
+      }
+    }
+  }
+
+  tags = {
+    Name      = "clusterra-tg-${var.cluster_name}"
+    ManagedBy = "OpenTOFU"
+    Cluster   = var.cluster_name
+  }
+}
+
+# Register head node IP as target
+resource "aws_vpclattice_target_group_attachment" "head_node" {
+  count = local.target_instance_id != null ? 1 : 0
+
+  target_group_identifier = aws_vpclattice_target_group.slurm_api.id
+
+  target {
+    id   = data.aws_instance.head_node[0].private_ip
+    port = var.slurm_api_port
+  }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VPC LATTICE LISTENER
+# ─────────────────────────────────────────────────────────────────────────────
+
+resource "aws_vpclattice_listener" "slurm_api" {
+  name               = "clusterra-listener-${local.cluster_short_id}"
+  protocol           = "HTTPS"  # TLS termination at Lattice (recommended for slurmrestd)
+  port               = 443
+  service_identifier = aws_vpclattice_service.slurm_api.id
+
+  default_action {
+    forward {
+      target_groups {
+        target_group_identifier = aws_vpclattice_target_group.slurm_api.id
+        weight                  = 100
+      }
+    }
+  }
+
+  tags = {
+    Name      = "clusterra-listener-${var.cluster_name}"
+    ManagedBy = "OpenTOFU"
+  }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VPC LATTICE AUTH POLICY
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Allow Clusterra account to invoke the service
+resource "aws_vpclattice_auth_policy" "allow_clusterra" {
+  resource_identifier = aws_vpclattice_service.slurm_api.arn
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "AllowClusterraAccess"
+        Effect    = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${local.clusterra_account_id}:root"
+        }
+        Action   = "vpc-lattice-svcs:Invoke"
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AWS RAM RESOURCE SHARE (Cross-Account Access)
+# ─────────────────────────────────────────────────────────────────────────────
+
+resource "aws_ram_resource_share" "clusterra_service_network" {
+  name                      = "clusterra-${var.cluster_name}"
+  allow_external_principals = true  # Allow sharing with Clusterra account
+
+  tags = {
+    Name      = "clusterra-ram-${var.cluster_name}"
+    ManagedBy = "OpenTOFU"
+    Cluster   = var.cluster_name
+  }
+}
+
+# Share the service network with Clusterra account
+resource "aws_ram_resource_association" "service_network" {
+  resource_arn       = aws_vpclattice_service_network.clusterra.arn
+  resource_share_arn = aws_ram_resource_share.clusterra_service_network.arn
+}
+
+# Associate Clusterra account as principal
+resource "aws_ram_principal_association" "clusterra" {
+  principal          = local.clusterra_account_id
+  resource_share_arn = aws_ram_resource_share.clusterra_service_network.arn
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -305,27 +411,28 @@ resource "aws_iam_role_policy" "ec2_access" {
 output "clusterra_onboarding" {
   description = "Copy ALL of these values to Clusterra console or use for API registration"
   value = {
-    cluster_name          = var.cluster_name
-    region                = data.aws_region.current.name
-    aws_account_id        = data.aws_caller_identity.current.account_id
-    vpc_endpoint_service  = aws_vpc_endpoint_service.slurm_api.service_name
-    slurm_port            = var.slurm_api_port
-    slurm_jwt_secret_arn  = aws_secretsmanager_secret.slurm_jwt.arn
-    role_arn              = aws_iam_role.clusterra_access.arn
-    external_id           = "clusterra-${var.cluster_name}"
-    head_node_instance_id = local.target_instance_id
-    nlb_dns               = aws_lb.slurm_api.dns_name
+    cluster_name               = var.cluster_name
+    region                     = data.aws_region.current.name
+    aws_account_id             = data.aws_caller_identity.current.account_id
+    # VPC Lattice endpoints (replaces vpc_endpoint_service)
+    lattice_service_endpoint   = aws_vpclattice_service.slurm_api.dns_entry[0].domain_name
+    lattice_service_network_id = aws_vpclattice_service_network.clusterra.id
+    slurm_port                 = var.slurm_api_port
+    slurm_jwt_secret_arn       = aws_secretsmanager_secret.slurm_jwt.arn
+    role_arn                   = aws_iam_role.clusterra_access.arn
+    external_id                = "clusterra-${var.cluster_name}"
+    head_node_instance_id      = local.target_instance_id
   }
 }
 
-output "nlb_arn" {
-  description = "NLB ARN"
-  value       = aws_lb.slurm_api.arn
+output "lattice_service_endpoint" {
+  description = "VPC Lattice service DNS endpoint for Clusterra to connect"
+  value       = aws_vpclattice_service.slurm_api.dns_entry[0].domain_name
 }
 
-output "vpc_endpoint_service_name" {
-  description = "VPC Endpoint Service name for Clusterra to connect"
-  value       = aws_vpc_endpoint_service.slurm_api.service_name
+output "lattice_service_network_id" {
+  description = "VPC Lattice service network ID (shared via RAM)"
+  value       = aws_vpclattice_service_network.clusterra.id
 }
 
 output "iam_role_arn" {
@@ -342,4 +449,15 @@ output "external_id" {
 output "customer_id" {
   description = "Unique customer ID for this deployment"
   value       = local.customer_id
+}
+
+# Keep NLB outputs for backwards compatibility (will be null/empty)
+output "nlb_arn" {
+  description = "DEPRECATED: NLB ARN (replaced by VPC Lattice)"
+  value       = null
+}
+
+output "vpc_endpoint_service_name" {
+  description = "DEPRECATED: VPC Endpoint Service name (replaced by VPC Lattice)"
+  value       = null
 }

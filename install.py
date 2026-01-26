@@ -263,7 +263,8 @@ class DeploymentState:
     head_node_instance_id: str = ""
     
     # Stage 3 outputs
-    vpc_endpoint_dns: str = ""
+    lattice_service_endpoint: str = ""
+    lattice_service_network_id: str = ""
     iam_role_arn: str = ""
     iam_external_id: str = ""
     
@@ -807,7 +808,8 @@ class Orchestrator:
         onboarding = outputs.get('clusterra_onboarding', {}).get('value', {})
         
         self.state_mgr.update(
-            vpc_endpoint_dns=onboarding.get('vpc_endpoint_service', ''),
+            lattice_service_endpoint=onboarding.get('lattice_service_endpoint', ''),
+            lattice_service_network_id=onboarding.get('lattice_service_network_id', ''),
             iam_role_arn=onboarding.get('role_arn', ''),
             iam_external_id=onboarding.get('external_id', ''),
         )
@@ -970,7 +972,8 @@ class Orchestrator:
             "cluster_name": self.state.cluster_name,
             "aws_account_id": onboarding.get("aws_account_id", ""),
             "region": self.state.region,
-            "vpc_endpoint_dns": onboarding.get("vpc_endpoint_service", ""),
+            "lattice_service_endpoint": onboarding.get("lattice_service_endpoint", ""),
+            "lattice_service_network_id": onboarding.get("lattice_service_network_id", ""),
             "slurm_port": int(onboarding.get("slurm_port", 6830)),
             "slurm_jwt_secret_arn": onboarding.get("slurm_jwt_secret_arn", ""),
             "iam_role_arn": onboarding.get("role_arn", ""),
@@ -1044,7 +1047,7 @@ class Orchestrator:
         # Find which stage actually failed by looking at what data we have
         if self.state.cluster_id:
             self.state_mgr.set_stage(DeploymentStage.STAGE_3A_EVENTS)
-        elif self.state.vpc_endpoint_dns:
+        elif self.state.lattice_service_endpoint:
             self.state_mgr.set_stage(DeploymentStage.STAGE_3A_EVENTS)
         elif self.state.head_node_instance_id:
             self.state_mgr.set_stage(DeploymentStage.STAGE_2A_CONNECTIVITY)
@@ -1307,7 +1310,7 @@ def main():
             # Use both state data AND error message to determine retry stage
             if state_mgr.state.cluster_id:
                 retry_stage = "3a_events (Events Setup)"
-            elif state_mgr.state.vpc_endpoint_dns:
+            elif state_mgr.state.lattice_service_endpoint:
                 retry_stage = "3a_events (Events Setup)"  
             elif state_mgr.state.head_node_instance_id:
                 retry_stage = "2a_connectivity (Connectivity)"
