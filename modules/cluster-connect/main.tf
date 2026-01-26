@@ -63,6 +63,8 @@ resource "random_password" "slurm_jwt_key" {
 }
 
 resource "aws_secretsmanager_secret" "slurm_jwt" {
+  # checkov:skip=CKV2_AWS_57:Automatic rotation not needed for static JWT
+  # checkov:skip=CKV_AWS_149:Default KMS key is sufficient
   name                    = "clusterra-slurm-jwt-${var.cluster_name}"
   description             = "Slurm JWT HS256 key for Clusterra authentication"
   recovery_window_in_days = 30  # Production-safe: 30-day recovery window
@@ -324,6 +326,7 @@ resource "aws_ram_principal_association" "clusterra" {
 # ─────────────────────────────────────────────────────────────────────────────
 
 resource "aws_iam_role" "clusterra_access" {
+  # checkov:skip=CKV_AWS_61:AssumeRole strictly scoped to Clusterra account via Trust Policy
   name = "clusterra-access-${var.cluster_name}"
 
   assume_role_policy = jsonencode({
