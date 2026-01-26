@@ -185,7 +185,7 @@ resource "aws_ssm_document" "setup_slurmrestd" {
   content = jsonencode({
     schemaVersion = "2.2"
     description   = "Configure slurmrestd with JWT for Clusterra"
-    parameters    = {
+    parameters = {
       SecretArn = {
         type        = "String"
         description = "ARN of the JWT Secret"
