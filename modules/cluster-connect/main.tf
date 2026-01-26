@@ -101,13 +101,13 @@ data "aws_instance" "head_node" {
 data "aws_iam_instance_profile" "head_node" {
   count = local.target_instance_id != null && length(data.aws_instance.head_node) > 0 ? 1 : 0
   # Instance profile can be just a name or contain a path - extract the name part
-  name  = element(split("/", data.aws_instance.head_node[0].iam_instance_profile), length(split("/", data.aws_instance.head_node[0].iam_instance_profile)) - 1)
+  name = element(split("/", data.aws_instance.head_node[0].iam_instance_profile), length(split("/", data.aws_instance.head_node[0].iam_instance_profile)) - 1)
 }
 
 # Allow head node role to read JWT secret (required for slurmrestd setup)
 resource "aws_iam_role_policy" "head_node_jwt_access" {
   count = length(data.aws_iam_instance_profile.head_node) > 0 ? 1 : 0
-  
+
   name = "clusterra-jwt-access-${var.cluster_id}"
   role = data.aws_iam_instance_profile.head_node[0].role_name
 
@@ -129,7 +129,7 @@ resource "aws_iam_role_policy" "head_node_jwt_access" {
 # Attach SSM managed policy to head node role (required for SSM commands)
 resource "aws_iam_role_policy_attachment" "head_node_ssm" {
   count = length(data.aws_iam_instance_profile.head_node) > 0 ? 1 : 0
-  
+
   role       = data.aws_iam_instance_profile.head_node[0].role_name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }

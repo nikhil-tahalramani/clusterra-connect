@@ -31,7 +31,7 @@ data "aws_iam_instance_profile" "head_node" {
 # Attach SQS policy to head node role (required for event hooks)
 resource "aws_iam_role_policy_attachment" "head_node_sqs" {
   count = length(data.aws_iam_instance_profile.head_node) > 0 ? 1 : 0
-  
+
   role       = data.aws_iam_instance_profile.head_node[0].role_name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSQSFullAccess"
 }
