@@ -436,29 +436,27 @@ def phase_4_register(cluster_name: str, region: str, tenant_id: str, api_url: st
     if first_success:
         console.print(f"[green]✓ Cluster registered![/green]")
 
-    # ALWAYS check for RAM invitation (API adds us as principal, we need to accept)
+    # ALWAYS check for RAM invitation (blocking wait)
     # This enables the Lattice service-to-network association
-    console.print("[dim]Checking for RAM Resource Share invitation...[/dim]")
-    ram_accepted = accept_ram_invitation(session)
+    console.print("[dim]Waiting for RAM Resource Share invitation...[/dim]")
+    if not wait_for_ram_acceptance(session):
+        console.print("[red]❌ Failed to accept RAM invitation. Cannot proceed with Lattice association.[/red]")
+        return False
     
-    if ram_accepted:
-        console.print("[dim]RAM accepted - retrying to complete Lattice association...[/dim]")
-        # 2nd call to complete the Lattice association now that RAM is accepted
-        try:
-            resp = requests.post(url, json=payload, headers={"X-AWS-STS-Token": sts_token}, timeout=60)
-            if resp.status_code == 201:
-                console.print(f"[green]✓ Lattice association complete![/green]")
-        except Exception as e:
-            console.print(f"[yellow]⚠ Retry failed (association may complete later): {e}[/yellow]")
+    # Perform Lattice Association locally
+    service_arn = onboarding.get("lattice_service_arn", "")
+    network_id = onboarding.get("lattice_service_network_id", "")
+    
+    if not service_arn or not network_id:
+        console.print("[red]❌ Missing Lattice Service ARN or Network ID. Check Tofu outputs.[/red]")
+        return False
 
-    if first_success or (resp and resp.status_code == 201):
-        update_tfvars({'registered': 'true'})
-        console.print(f"[green]✓ Registration complete! Cluster ID: {cluster_id}[/green]")
-        return True
+    if not associate_lattice_service(session, service_arn, network_id):
+        return False
 
-    if resp:
-        console.print(f"[red]❌ Registration failed: {resp.text}[/red]")
-    return False
+    update_tfvars({'registered': 'true'})
+    console.print(f"[green]✓ Registration complete! Cluster ID: {cluster_id}[/green]")
+    return True
 
 
 def accept_ram_invitation(session: boto3.Session) -> bool:
@@ -489,6 +487,48 @@ def accept_ram_invitation(session: boto3.Session) -> bool:
         console.print(f"[red]⚠ Error checking RAM invitations: {e}[/red]")
     
     return False
+
+
+def wait_for_ram_acceptance(session: boto3.Session, timeout: int = 300) -> bool:
+    """Poll for RAM invitation and accept it."""
+    elapsed = 0
+    interval = 10
+    
+    with Progress(SpinnerColumn(), TextColumn("{task.description}"), TimeElapsedColumn(), console=console) as progress:
+        task = progress.add_task("Waiting for RAM Invitation...", total=None)
+        
+        while elapsed < timeout:
+            if accept_ram_invitation(session):
+                return True
+                
+            time.sleep(interval)
+            elapsed += interval
+            progress.update(task, description=f"Waiting for RAM Invitation... ({elapsed}s)")
+            
+    return False
+
+
+def associate_lattice_service(session: boto3.Session, service_arn: str, service_network_id: str) -> bool:
+    """Associate the local Lattice Service with the Clusterra Service Network."""
+    lattice = session.client('vpc-lattice')
+    console.print(f"[dim]Associating service {service_arn} with network {service_network_id}...[/dim]")
+    try:
+        lattice.create_service_network_service_association(
+            serviceNetworkIdentifier=service_network_id,
+            serviceIdentifier=service_arn
+        )
+        console.print("[green]✓ Service associated with Clusterra Service Network[/green]")
+        return True
+    except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code')
+        if error_code == 'ConflictException':
+            console.print("[green]✓ Service already associated[/green]")
+            return True
+        console.print(f"[red]❌ Association failed: {e}[/red]")
+        return False
+    except Exception as e:
+        console.print(f"[red]❌ Association failed: {e}[/red]")
+        return False
 
 
 def generate_sts_token(session: boto3.Session) -> str:
