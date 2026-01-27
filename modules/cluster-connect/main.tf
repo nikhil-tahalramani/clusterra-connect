@@ -357,7 +357,10 @@ resource "aws_vpclattice_auth_policy" "allow_clusterra" {
         Sid    = "AllowClusterraAccess"
         Effect = "Allow"
         Principal = {
-          AWS = "arn:aws:iam::${local.clusterra_account_id}:root"
+          AWS = [
+            "arn:aws:iam::${local.clusterra_account_id}:root",
+            "arn:aws:iam::${local.clusterra_account_id}:role/clusterra-bridge-lambda-role"
+          ]
         }
         Action   = "vpc-lattice-svcs:Invoke"
         Resource = "*"
