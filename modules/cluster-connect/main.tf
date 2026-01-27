@@ -476,7 +476,7 @@ output "clusterra_onboarding" {
     slurm_port                 = var.slurm_api_port
     slurm_jwt_secret_arn       = aws_secretsmanager_secret.slurm_jwt.arn
     role_arn                   = aws_iam_role.clusterra_access.arn
-    external_id                = "clusterra-${var.cluster_name}"
+    external_id                = "clusterra-${var.cluster_id}"
     head_node_instance_id      = local.target_instance_id
   }
 }
