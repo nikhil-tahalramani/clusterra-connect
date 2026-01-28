@@ -462,6 +462,42 @@ resource "aws_iam_role_policy" "ec2_access" {
   })
 }
 
+# SSM permissions for user provisioning (Clusterra token-translator runs sacctmgr via SSM)
+resource "aws_iam_role_policy" "ssm_access" {
+  name = "clusterra-ssm-access"
+  role = aws_iam_role.clusterra_access.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "SSMSendCommand"
+        Effect = "Allow"
+        Action = [
+          "ssm:SendCommand"
+        ]
+        Resource = [
+          "arn:aws:ssm:*:*:document/AWS-RunShellScript",
+          "arn:aws:ec2:*:*:instance/*"
+        ]
+        Condition = {
+          StringEquals = {
+            "ssm:resourceTag/parallelcluster:cluster-name" = var.cluster_name
+          }
+        }
+      },
+      {
+        Sid    = "SSMGetCommandInvocation"
+        Effect = "Allow"
+        Action = [
+          "ssm:GetCommandInvocation"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # OUTPUTS - Values for Clusterra API registration
 # ─────────────────────────────────────────────────────────────────────────────
