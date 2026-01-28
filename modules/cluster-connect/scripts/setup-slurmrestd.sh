@@ -112,6 +112,22 @@ if ! id slurmrestd &>/dev/null; then
     sudo useradd -r -s /bin/false slurmrestd
 fi
 
+# 6b. Create Clusterra runner user for job execution
+# This user is used by all jobs submitted via Clusterra
+# Extract cluster_id from hostname (format: {cluster_name}-HeadNode or similar)
+CLUSTER_ID="${CLUSTER_ID:-$(hostname | grep -oE 'clus[a-z0-9]+' || echo 'default')}"
+RUNNER_USER="linux_user_${CLUSTER_ID}"
+
+if ! id "$RUNNER_USER" &>/dev/null; then
+    echo "Creating Clusterra runner user: $RUNNER_USER"
+    sudo useradd -m -s /bin/bash -d "/home/${RUNNER_USER}" "$RUNNER_USER"
+fi
+
+# 6c. Create default Slurm account for Clusterra users
+# This provides a shared accounting namespace for all tenant users
+echo "Creating default Slurm account..."
+sacctmgr -i add account clusterra_default Description="Clusterra default account" 2>/dev/null || true
+
 # 7. Give slurmrestd user access to JWT key
 sudo chown slurm:slurmrestd "$JWT_KEY_PATH"
 sudo chmod 640 "$JWT_KEY_PATH"
