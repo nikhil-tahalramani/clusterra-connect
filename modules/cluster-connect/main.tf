@@ -512,7 +512,7 @@ output "clusterra_onboarding" {
     lattice_service_endpoint   = aws_vpclattice_service.slurm_api.dns_entry[0].domain_name
     lattice_service_arn        = aws_vpclattice_service.slurm_api.arn
     lattice_service_network_id = var.clusterra_service_network_id
-    slurm_port                 = var.slurm_api_port
+    slurm_port                 = 443 # Lattice listener port (slurmrestd runs on ${var.slurm_api_port} internally)
     slurm_jwt_secret_arn       = aws_secretsmanager_secret.slurm_jwt.arn
     role_arn                   = aws_iam_role.clusterra_access.arn
     external_id                = "clusterra-${var.cluster_id}"

@@ -409,7 +409,7 @@ def phase_4_register(cluster_name: str, region: str, tenant_id: str, api_url: st
         "lattice_service_endpoint": onboarding.get("lattice_service_endpoint", ""),
         "lattice_service_arn": onboarding.get("lattice_service_arn", ""),
         "lattice_service_network_id": onboarding.get("lattice_service_network_id", ""),
-        "slurm_port": int(onboarding.get("slurm_port", 6830)),
+        "slurm_port": int(onboarding.get("slurm_port", 443)),
         "slurm_jwt_secret_arn": onboarding.get("slurm_jwt_secret_arn", ""),
         "iam_role_arn": onboarding.get("role_arn", ""),
         "iam_external_id": onboarding.get("external_id", ""),
