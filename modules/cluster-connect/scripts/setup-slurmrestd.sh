@@ -35,23 +35,34 @@ if [ -f /usr/lib64/libhttp_parser.so.2.9.4 ] && [ ! -f /usr/lib64/libhttp_parser
     ln -s /usr/lib64/libhttp_parser.so.2.9.4 /usr/lib64/libhttp_parser.so.2.9
 fi
 
-# 1. Generate or retrieve JWT key
-if [ -n "$JWT_SECRET_ARN" ]; then
-    echo "Retrieving JWT key from Secrets Manager..."
-    # Check if secret exists and has a value
-    SECRET_VALUE=$(aws secretsmanager get-secret-value --secret-id "$JWT_SECRET_ARN" --query 'SecretString' --output text 2>/dev/null || echo "")
-    
-    if [ -z "$SECRET_VALUE" ] || [ "$SECRET_VALUE" == "PLACEHOLDER" ]; then
-        echo "Generating new JWT key..."
-        JWT_KEY=$(openssl rand -hex 32)
-        aws secretsmanager put-secret-value --secret-id "$JWT_SECRET_ARN" --secret-string "$JWT_KEY"
-    else
-        JWT_KEY="$SECRET_VALUE"
-    fi
-else
-    echo "No secret ARN provided, generating local JWT key..."
-    JWT_KEY=$(openssl rand -hex 32)
+# 1. Retrieve JWT key from Secrets Manager (Terraform is the source of truth)
+if [ -z "$JWT_SECRET_ARN" ]; then
+    echo "ERROR: JWT_SECRET_ARN is required. Terraform should have created the secret."
+    exit 1
 fi
+
+echo "Retrieving JWT key from Secrets Manager..."
+# Retry logic for IAM propagation delays
+MAX_RETRIES=5
+RETRY_DELAY=10
+
+for i in $(seq 1 $MAX_RETRIES); do
+    JWT_KEY=$(aws secretsmanager get-secret-value --secret-id "$JWT_SECRET_ARN" --query 'SecretString' --output text 2>/dev/null)
+    
+    if [ -n "$JWT_KEY" ] && [ "$JWT_KEY" != "null" ]; then
+        echo "Successfully retrieved JWT key from Secrets Manager"
+        break
+    fi
+    
+    if [ $i -eq $MAX_RETRIES ]; then
+        echo "ERROR: Failed to retrieve JWT key from Secrets Manager after $MAX_RETRIES attempts."
+        echo "Ensure Terraform has created the secret and IAM permissions are correct."
+        exit 1
+    fi
+    
+    echo "Waiting for secret to be available (attempt $i/$MAX_RETRIES)..."
+    sleep $RETRY_DELAY
+done
 
 # 2. Write JWT key to file
 printf "%s" "$JWT_KEY" | sudo tee "$JWT_KEY_PATH" > /dev/null
