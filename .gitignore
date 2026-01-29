@@ -30,3 +30,9 @@ test-*.sh
 *.tfvars.deployed
 modules/cluster-events/lambda/handler.zip
 
+
+# Scripts & temporary files
+reproduce_curl.sh
+test_api_connection.py
+response.json
+response_payload.json
