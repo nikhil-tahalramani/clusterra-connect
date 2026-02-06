@@ -107,6 +107,8 @@ resource "aws_secretsmanager_secret" "slurm_db_password" {
   name_prefix             = "slurm-db-password-${var.cluster_name}-"
   description             = "Password for Slurm accounting database user"
   recovery_window_in_days = 0 # Immediate deletion for demo/dev
+  # checkov:skip=CKV_AWS_149:Default KMS key is sufficient for this module
+
 }
 
 resource "aws_secretsmanager_secret_version" "slurm_db_password" {
@@ -123,6 +125,7 @@ resource "aws_security_group" "aurora" {
 
   # Inbound MySQL from Head Node Subnet
   ingress {
+    description = "Allow MySQL from Head Node"
     from_port   = 3306
     to_port     = 3306
     protocol    = "tcp"
@@ -130,11 +133,13 @@ resource "aws_security_group" "aurora" {
   }
 
   egress {
+    description = "Allow all outbound traffic"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
+
 }
 
 # Get subnet details to check AZs
@@ -165,6 +170,20 @@ resource "aws_rds_cluster" "slurm_db" {
   db_subnet_group_name   = aws_db_subnet_group.slurm_db.name
   vpc_security_group_ids = [aws_security_group.aurora.id]
   skip_final_snapshot    = true
+
+  # Security & Compliance
+  storage_encrypted                   = true
+  iam_database_authentication_enabled = true
+  copy_tags_to_snapshot               = true
+  backtrack_window                    = 3600 # 1 hour
+  deletion_protection                 = false # For easy teardown in this module
+
+  # Logging
+  enabled_cloudwatch_logs_exports = ["audit", "error", "general", "slowquery"]
+
+  # checkov:skip=CKV_AWS_327:Default KMS key is sufficient
+  # checkov:skip=CKV_AWS_149:Default KMS key is sufficient
+
 
   serverlessv2_scaling_configuration {
     min_capacity = 0.0 # Scales to 0 when idle (auto-pause)
