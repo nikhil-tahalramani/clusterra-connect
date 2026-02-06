@@ -22,8 +22,18 @@ jobs:
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
       
-      - name: Tofu Format Check
-        run: tofu fmt -check -recursive
+      - name: Tofu Format
+        run: |
+          tofu fmt -recursive
+          if git diff --quiet; then
+            echo "No formatting changes needed"
+          else
+            git config --global user.name 'github-actions[bot]'
+            git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+            git add -A
+            git commit -m "style: auto-format terraform files"
+            git push
+          fi
       
       - name: Tofu Init (Root)
         run: tofu init -backend=false
