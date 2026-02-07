@@ -30,46 +30,46 @@ _sts_token_cache = None
 def handler(event, context):
     """
     Process SQS messages and ship to Clusterra API.
-    
+
     SQS sends batches of up to 10 messages per invocation.
     """
     records = event.get("Records", [])
     if not records:
         return {"statusCode": 200, "body": "No records"}
-    
+
     # Parse events from SQS messages
     events = []
     for record in records:
         try:
             body = json.loads(record["body"])
-            
+
             # CloudWatch events have nested structure
             if "detail-type" in body:
                 body = transform_cloudwatch_event(body)
-            
+
             events.append(body)
         except (json.JSONDecodeError, KeyError) as e:
             print(f"Error parsing record: {e}")
             continue
-    
+
     if not events:
         return {"statusCode": 200, "body": "No valid events"}
-    
+
     # Group events by type for batch API
     job_updates = []
     node_updates = []
     cluster_updates = []
-    
+
     for evt in events:
         event_type = evt.get("event", "")
-        
+
         if event_type.startswith("job."):
             job_updates.append(transform_job_event(evt))
         elif event_type.startswith("node."):
             node_updates.append(transform_node_event(evt))
         elif event_type.startswith("cluster."):
             cluster_updates.append(transform_cluster_event(evt))
-    
+
     # Build batch request (no cluster_id in body - it's in the path now)
     tables = {}
     if job_updates:
@@ -78,9 +78,9 @@ def handler(event, context):
         tables["nodes"] = {"upsert": node_updates}
     if cluster_updates:
         tables["clusters"] = {"update": cluster_updates}
-    
+
     payload = {"tables": tables}
-    
+
     # Ship to Clusterra API with STS token auth
     try:
         # Path now includes tenant_id and cluster_id
@@ -99,12 +99,12 @@ def transform_cloudwatch_event(cw_event):
     detail_type = cw_event.get("detail-type", "")
     detail = cw_event.get("detail", {})
     timestamp = cw_event.get("time", datetime.utcnow().isoformat())
-    
+
     # EC2 state changes
     if detail_type == "EC2 Instance State-change Notification":
         state = detail.get("state", "unknown")
         instance_id = detail.get("instance-id")
-        
+
         # Map EC2 states to our event types
         state_map = {
             "running": "cluster.state.started",
@@ -112,14 +112,14 @@ def transform_cloudwatch_event(cw_event):
             "stopping": "cluster.state.stopping",
             "pending": "cluster.state.starting",
         }
-        
+
         return {
             "ts": timestamp,
             "event": state_map.get(state, f"cluster.state.{state}"),
             "instance_id": instance_id,
-            "detail": detail
+            "detail": detail,
         }
-    
+
     # ASG events
     elif detail_type == "EC2 Instance Launch Successful":
         return {
@@ -128,7 +128,7 @@ def transform_cloudwatch_event(cw_event):
             "instance_id": detail.get("EC2InstanceId"),
             "asg_name": detail.get("AutoScalingGroupName"),
         }
-    
+
     elif detail_type == "EC2 Instance Terminate Successful":
         return {
             "ts": timestamp,
@@ -136,7 +136,7 @@ def transform_cloudwatch_event(cw_event):
             "instance_id": detail.get("EC2InstanceId"),
             "asg_name": detail.get("AutoScalingGroupName"),
         }
-    
+
     # Spot interruption
     elif detail_type == "EC2 Spot Instance Interruption Warning":
         return {
@@ -145,23 +145,19 @@ def transform_cloudwatch_event(cw_event):
             "instance_id": detail.get("instance-id"),
             "action": detail.get("instance-action"),
         }
-    
+
     # Unknown event type - pass through
-    return {
-        "ts": timestamp,
-        "event": f"unknown.{detail_type}",
-        "detail": detail
-    }
+    return {"ts": timestamp, "event": f"unknown.{detail_type}", "detail": detail}
 
 
 def transform_job_event(evt):
     """Transform job event to batch API format."""
     event_type = evt.get("event", "")
-    
+
     update = {
         "job_id": str(evt.get("job_id", "")),
     }
-    
+
     if event_type == "job.started":
         update["state"] = "running"
         update["started_at"] = evt.get("ts")
@@ -180,7 +176,7 @@ def transform_job_event(evt):
     elif event_type == "job.timeout":
         update["state"] = "timeout"
         update["completed_at"] = evt.get("ts")
-    
+
     return update
 
 
@@ -217,25 +213,25 @@ def generate_sts_token():
     global _sts_token_cache
     if _sts_token_cache:
         return _sts_token_cache
-    
+
     session = boto3.Session()
     region = os.environ.get("AWS_REGION", "us-east-1")
     url = f"https://sts.{region}.amazonaws.com/"
-    
+
     request = AWSRequest(
         method="POST",
         url=url,
         data="Action=GetCallerIdentity&Version=2011-06-15",
-        headers={"Content-Type": "application/x-www-form-urlencoded"}
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
     )
     SigV4Auth(session.get_credentials(), "sts", region).add_auth(request)
-    
+
     token_data = {
         "url": request.url,
         "headers": dict(request.headers),
-        "body": request.data
+        "body": request.data,
     }
-    
+
     _sts_token_cache = base64.b64encode(json.dumps(token_data).encode()).decode()
     return _sts_token_cache
 
@@ -243,10 +239,10 @@ def generate_sts_token():
 def call_clusterra_api(path, payload):
     """Call Clusterra API with STS token authentication."""
     url = f"{CLUSTERRA_API_URL}{path}"
-    
+
     data = json.dumps(payload).encode("utf-8")
     sts_token = generate_sts_token()
-    
+
     request = urllib.request.Request(
         url,
         data=data,
@@ -254,9 +250,9 @@ def call_clusterra_api(path, payload):
             "Content-Type": "application/json",
             "X-AWS-STS-Token": sts_token,
         },
-        method="POST"
+        method="POST",
     )
-    
+
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             return json.loads(response.read().decode("utf-8"))

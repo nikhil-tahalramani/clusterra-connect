@@ -48,18 +48,18 @@ RETRY_DELAY=10
 
 for i in $(seq 1 $MAX_RETRIES); do
     JWT_KEY=$(aws secretsmanager get-secret-value --secret-id "$JWT_SECRET_ARN" --query 'SecretString' --output text 2>/dev/null)
-    
+
     if [ -n "$JWT_KEY" ] && [ "$JWT_KEY" != "null" ]; then
         echo "Successfully retrieved JWT key from Secrets Manager"
         break
     fi
-    
+
     if [ $i -eq $MAX_RETRIES ]; then
         echo "ERROR: Failed to retrieve JWT key from Secrets Manager after $MAX_RETRIES attempts."
         echo "Ensure Terraform has created the secret and IAM permissions are correct."
         exit 1
     fi
-    
+
     echo "Waiting for secret to be available (attempt $i/$MAX_RETRIES)..."
     sleep $RETRY_DELAY
 done
@@ -96,7 +96,7 @@ if ! grep -q "AuthAltTypes=auth/jwt" "$SLURMDBD_CONF"; then
 AuthAltTypes=auth/jwt
 AuthAltParameters=jwt_key=$JWT_KEY_PATH
 EOF
-    
+
     echo "Restarting slurmdbd..."
     sudo systemctl restart slurmdbd || true
     sleep 3

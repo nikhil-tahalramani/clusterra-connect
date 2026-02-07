@@ -19,7 +19,7 @@ STAGED_TF_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.tf$'
 
 if [ -n "$STAGED_TF_FILES" ]; then
     echo "Formatting Terraform files..."
-    
+
     # Format each staged file
     for file in $STAGED_TF_FILES; do
         if [ -f "$file" ]; then
@@ -27,7 +27,7 @@ if [ -n "$STAGED_TF_FILES" ]; then
             git add "$file"
         fi
     done
-    
+
     echo "✓ Terraform files formatted"
 fi
 

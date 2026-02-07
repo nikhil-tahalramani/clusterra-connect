@@ -19,37 +19,37 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup OpenTofu
         uses: opentofu/setup-opentofu@v1
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
-      
+
       - name: Tofu Format Check
         run: |
           tofu fmt -check -recursive || {
             echo "❌ Terraform files need formatting. Run locally: tofu fmt -recursive"
             exit 1
           }
-      
+
       - name: Tofu Init (Root)
         run: tofu init -backend=false
-      
+
       - name: Tofu Validate (Root)
         run: tofu validate
-      
+
       - name: Tofu Init (Connect Module)
         working-directory: modules/cluster-connect
         run: tofu init -backend=false
-      
+
       - name: Tofu Validate (Connect Module)
         working-directory: modules/cluster-connect
         run: tofu validate
-      
+
       - name: Tofu Init (Events Module)
         working-directory: modules/cluster-events
         run: tofu init -backend=false
-      
+
       - name: Tofu Validate (Events Module)
         working-directory: modules/cluster-events
         run: tofu validate
@@ -59,15 +59,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      
+
       - name: Install ruff
         run: pip install ruff
-      
+
       - name: Lint Lambda Handler
         run: ruff check modules/cluster-events/lambda/ --ignore E501
 
@@ -76,10 +76,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Install shellcheck
         run: sudo apt-get install -y shellcheck
-      
+
       - name: Lint Hook Scripts
         run: shellcheck modules/cluster-events/hooks/*.sh || true
 
@@ -88,15 +88,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      
+
       - name: Install dependencies
         run: pip install pytest boto3
-      
+
       - name: Run Lambda Tests
         working-directory: modules/cluster-events/lambda
         run: |
@@ -112,7 +112,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Run Checkov
         uses: bridgecrewio/checkov-action@v12
         with:

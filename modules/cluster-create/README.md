@@ -13,14 +13,14 @@ Creates AWS ParallelCluster prerequisites and generates the cluster configuratio
 ```hcl
 module "cluster" {
   source = "./modules/parallelcluster"
-  
+
   cluster_name            = "my-cluster"
   region                  = "ap-south-1"
   vpc_id                  = "vpc-xxx"
   subnet_id               = "subnet-xxx"
   ssh_key_name            = "my-key"
   customer_id             = "cust_abc123"
-  
+
   # Optional
   head_node_instance_type = "t3.small"
   compute_instance_type   = "c5.large"

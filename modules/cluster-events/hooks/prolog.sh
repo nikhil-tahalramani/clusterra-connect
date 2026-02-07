@@ -1,6 +1,6 @@
 #!/bin/bash
 # /opt/slurm/etc/prolog.sh (installed by Clusterra)
-# 
+#
 # Slurm Prolog - runs on COMPUTE node when job's first step starts
 # Sends job.started event to Clusterra API asynchronously (v2 - curl)
 #
