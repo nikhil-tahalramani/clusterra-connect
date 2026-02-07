@@ -179,6 +179,8 @@ resource "aws_ssm_document" "setup_slurmrestd" {
         inputs = {
           timeoutSeconds = "300"
           runCommand = [
+            # Export SSM parameter as environment variable (critical for script to receive JWT ARN)
+            "export SecretArn='{{ SecretArn }}'",
             # Embed the script content directly to avoid upload complexity
             base64decode(base64encode(file("${path.module}/scripts/setup-slurmrestd.sh")))
           ]

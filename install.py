@@ -481,6 +481,22 @@ def phase_2b_connect_ssm(cluster_name: str, session: boto3.Session) -> bool:
     else:
         console.print("[green]✓ slurmrestd is listening[/green]")
 
+    # CRITICAL: Verify JWT key sync before declaring success
+    onboarding = get_tofu_output("clusterra_onboarding", as_json=True) or {}
+    jwt_secret_arn = onboarding.get("slurm_jwt_secret_arn")
+    if not jwt_secret_arn:
+        console.print("[red]❌ Missing JWT Secret ARN in Tofu output[/red]")
+        return False
+
+    if not verify_jwt_key_sync(head_node_id, jwt_secret_arn, session):
+        console.print(
+            "[red]❌ JWT key verification failed. Installation cannot proceed.[/red]"
+        )
+        console.print(
+            "[yellow]Tip: Check SSM logs for 'clusterra-setup-*' document execution.[/yellow]"
+        )
+        return False
+
     return True
 
 
@@ -873,6 +889,61 @@ def verify_slurmrestd(instance_id: str, session: boto3.Session) -> bool:
     cmd = "sudo ss -tlnp | grep 6830"
     success, res = send_ssm_command(instance_id, [cmd], session)
     return success and res and "6830" in res
+
+
+def verify_jwt_key_sync(
+    instance_id: str, jwt_secret_arn: str, session: boto3.Session
+) -> bool:
+    """Verify JWT key on head node matches Secrets Manager.
+
+    This is a CRITICAL check - if keys don't match, Slurm auth WILL fail.
+    """
+    console.print("[dim]Verifying JWT key synchronization...[/dim]")
+
+    # 1. Get key from Secrets Manager
+    sm = session.client("secretsmanager")
+    try:
+        resp = sm.get_secret_value(SecretId=jwt_secret_arn)
+        sm_key = resp["SecretString"].strip()
+    except Exception as e:
+        console.print(
+            f"[red]❌ Failed to read JWT secret from Secrets Manager: {e}[/red]"
+        )
+        return False
+
+    # 2. Get key from head node via SSM
+    success, output = send_ssm_command(
+        instance_id,
+        ["cat /opt/slurm/etc/jwt_hs256.key 2>/dev/null || echo KEY_NOT_FOUND"],
+        session,
+    )
+
+    if not success or not output:
+        console.print("[red]❌ Failed to read JWT key from head node[/red]")
+        return False
+
+    head_key = output.strip()
+
+    if head_key == "KEY_NOT_FOUND":
+        console.print("[red]❌ JWT key file not found on head node[/red]")
+        return False
+
+    # 3. Compare keys
+    if head_key != sm_key:
+        console.print("[red]❌ JWT KEY MISMATCH DETECTED![/red]")
+        console.print(
+            f"[red]  Secrets Manager: {sm_key[:16]}...{sm_key[-8:]} ({len(sm_key)} chars)[/red]"
+        )
+        console.print(
+            f"[red]  Head Node:       {head_key[:16]}...{head_key[-8:]} ({len(head_key)} chars)[/red]"
+        )
+        console.print(
+            "[red]This WILL cause 'Protocol authentication error' when submitting jobs.[/red]"
+        )
+        return False
+
+    console.print("[green]✓ JWT key synchronized correctly[/green]")
+    return True
 
 
 def run_ssm_script(

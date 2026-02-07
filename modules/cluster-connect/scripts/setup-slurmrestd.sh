@@ -6,7 +6,9 @@
 set -e
 
 # Arguments
-JWT_SECRET_ARN="${1:-}"
+# SSM Document exports SecretArn as environment variable via {{ SecretArn }}
+# Fall back to $1 for manual invocation/testing
+JWT_SECRET_ARN="${SecretArn:-${1:-}}"
 
 # Paths (ParallelCluster standard locations)
 SLURM_CONF="/opt/slurm/etc/slurm.conf"
