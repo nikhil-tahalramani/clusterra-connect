@@ -2,7 +2,7 @@
 # /opt/clusterra/slurmctld_epilog.sh
 #
 # Slurm Controller Epilog - runs on HEAD node when job terminates
-# Sends final job event (completed/failed/cancelled/timeout) to SQS
+# Sends final job event (completed/failed/cancelled/timeout) via curl
 #
 # This script MUST exit 0 to avoid issues.
 
@@ -36,12 +36,12 @@ case "$JOB_STATE" in
         ;;
 esac
 
-# Run Python hook in background (async, non-blocking)
+# Source configuration and run hook in background (async, non-blocking)
 if [ -f /etc/clusterra/hooks.env ]; then
     source /etc/clusterra/hooks.env
-    export CLUSTERRA_SQS_URL
+    export CLUSTER_ID TENANT_ID CLUSTERRA_API_ENDPOINT
 fi
-(/opt/clusterra/clusterra-hook.py job.ended &)
+(/opt/clusterra/clusterra-hook.sh "$EVENT" &)
 
 # Chain to customer's slurmctld epilog if exists
 if [ -x /opt/slurm/etc/customer_slurmctld_epilog.sh ]; then
