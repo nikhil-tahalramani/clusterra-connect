@@ -1457,6 +1457,13 @@ def main():
 
     except KeyboardInterrupt:
         console.print("\n[yellow]Setup cancelled by user.[/yellow]")
+        # Clean up any deployed resources if we have a session and resources exist
+        if "session" in dir() and session is not None:
+            # Check if we have any connectivity resources deployed
+            onboarding = get_tofu_output("clusterra_onboarding", as_json=True)
+            if onboarding and onboarding.get("lattice_service_arn"):
+                console.print("[dim]Cleaning up deployed resources...[/dim]")
+                cleanup_resources(session)
         sys.exit(0)
 
 

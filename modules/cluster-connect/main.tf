@@ -29,12 +29,9 @@ locals {
 }
 
 locals {
-  # Use provided instance_id or look it up via tags
-  target_instance_id = var.head_node_instance_id != "" ? var.head_node_instance_id : (
-    length(data.aws_instances.head_node) > 0 && length(data.aws_instances.head_node[0].ids) > 0
-    ? data.aws_instances.head_node[0].ids[0]
-    : null
-  )
+  # Instance ID is always provided via tfvars (from CloudFormation lookup in install.py)
+  # This works regardless of instance state (running, stopped, etc.)
+  target_instance_id = var.head_node_instance_id != "" ? var.head_node_instance_id : null
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -73,23 +70,8 @@ resource "aws_secretsmanager_secret_version" "slurm_jwt" {
   secret_string = random_password.slurm_jwt_key.result
 }
 
-# Find the head node by ParallelCluster tags (ONLY if head_node_instance_id is not provided)
-data "aws_instances" "head_node" {
-  count = var.head_node_instance_id == "" ? 1 : 0
-
-  filter {
-    name   = "tag:parallelcluster:cluster-name"
-    values = [var.cluster_name]
-  }
-  filter {
-    name   = "tag:parallelcluster:node-type"
-    values = ["HeadNode"]
-  }
-  filter {
-    name   = "instance-state-name"
-    values = ["running"]
-  }
-}
+# Note: Head node instance ID is always provided via tfvars.
+# The install.py script fetches it from CloudFormation, which works regardless of instance state.
 
 # Get head node instance details for IP-based target group
 data "aws_instance" "head_node" {
@@ -126,13 +108,10 @@ resource "aws_iam_role_policy" "head_node_jwt_access" {
   })
 }
 
-# Attach SSM managed policy to head node role (required for SSM commands)
-resource "aws_iam_role_policy_attachment" "head_node_ssm" {
-  count = length(data.aws_iam_instance_profile.head_node) > 0 ? 1 : 0
-
-  role       = data.aws_iam_instance_profile.head_node[0].role_name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-}
+# NOTE: SSM policy (AmazonSSMManagedInstanceCore) is attached by install.py's
+# ensure_ssm_permissions() function BEFORE tofu apply runs. This keeps the policy
+# outside of Terraform's management, so cleanup_resources() won't remove it during
+# rollback - avoiding the chicken-and-egg problem where SSM is needed to reinstall.
 
 # Note: Head node Slurm hooks use curl to send events directly to Clusterra API
 
