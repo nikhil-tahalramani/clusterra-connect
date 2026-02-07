@@ -49,6 +49,12 @@ data "aws_vpc" "selected" {
 resource "random_password" "slurm_jwt_key" {
   length  = 64
   special = false
+
+  # CRITICAL: Once created, never regenerate the key
+  # Changing this key invalidates all existing tokens and breaks auth
+  lifecycle {
+    ignore_changes = all
+  }
 }
 
 resource "aws_secretsmanager_secret" "slurm_jwt" {
