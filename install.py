@@ -46,13 +46,22 @@ except ImportError:
 # ─────────────────────────────────────────────────────────────────────────────
 
 DEFAULT_API_URL = "https://api.clusterra.cloud"
-if os.environ.get("AWS_PROFILE") == "dev":
-    DEFAULT_API_URL = "https://dev-api.clusterra.cloud"
-CLUSTERRA_SERVICE_NETWORK_ID = "sn-0052a13189d334647"  # "sn-0f72eeda2ea824169"
+CLUSTERRA_SERVICE_NETWORK_ID = "sn-0052a13189d334647"
 CLUSTERRA_SERVICE_NETWORK_NAME = "clusterra-service-network"
 CLUSTERRA_SERVICE_ACCOUNT_ID = (
     "493245399820"  # Prod account that owns the service network
 )
+
+# Override for Dev Environment
+# Check CLUSTERRA_ENV first, then fall back to AWS_PROFILE (though AWS_PROFILE is unreliable if chaining)
+is_dev = (
+    os.environ.get("CLUSTERRA_ENV") == "dev" or os.environ.get("AWS_PROFILE") == "dev"
+)
+print("is_dev: ", is_dev)
+if is_dev:
+    DEFAULT_API_URL = "https://dev-api.clusterra.cloud"
+    CLUSTERRA_SERVICE_NETWORK_ID = "sn-0f72eeda2ea824169"
+    CLUSTERRA_SERVICE_ACCOUNT_ID = "306847926740"
 
 console = Console()
 
@@ -1451,6 +1460,12 @@ def gather_inputs(session: boto3.Session):
         f.write(f'secondary_subnet_id = "{secondary_subnet_id}"\n')
         f.write(f'tenant_id = "{tenant_id}"\n')
         f.write(f'cluster_id = "{cluster_id}"\n')
+        # Inject Dev/Prod specific variables
+        f.write(
+            f'clusterra_api_endpoint = "{DEFAULT_API_URL.replace("https://", "")}"\n'
+        )
+        f.write(f'clusterra_service_network_id = "{CLUSTERRA_SERVICE_NETWORK_ID}"\n')
+        f.write(f'clusterra_account_id = "{CLUSTERRA_SERVICE_ACCOUNT_ID}"\n')
 
         # New vs Existing/Update Logic
         if scenario == "new":
@@ -1469,9 +1484,6 @@ def gather_inputs(session: boto3.Session):
             f.write("deploy_new_cluster = false\n")
             if head_node_id:
                 f.write(f'head_node_instance_id = "{head_node_id}"\n')
-
-        f.write(f'clusterra_service_network_id = "{CLUSTERRA_SERVICE_NETWORK_ID}"\n')
-        f.write(f'clusterra_account_id = "{CLUSTERRA_SERVICE_ACCOUNT_ID}"\n')
 
 
 # ─────────────────────────────────────────────────────────────────────────────
