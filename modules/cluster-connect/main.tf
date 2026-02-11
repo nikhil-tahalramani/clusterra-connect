@@ -109,6 +109,14 @@ resource "aws_iam_role_policy" "head_node_jwt_access" {
           "secretsmanager:GetSecretValue"
         ]
         Resource = aws_secretsmanager_secret.slurm_jwt.arn
+      },
+      {
+        Sid    = "PutSlurmEvents"
+        Effect = "Allow"
+        Action = [
+          "events:PutEvents"
+        ]
+        Resource = "*" # Allow putting events to default bus
       }
     ]
   })
@@ -500,38 +508,83 @@ resource "aws_iam_role_policy" "ssm_access" {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# EVENTBRIDGE API DESTINATION (Node Events → Clusterra API)
-# Sends EC2/ASG events directly to Clusterra API via HTTPS
+# EVENT FORWARDER LAMBDA
+# Captures EC2 and Slurm events, filters/enriches them, and forwards to SaaS Bus
 # ─────────────────────────────────────────────────────────────────────────────
 
-# EventBridge Connection (authentication for API Destination)
-resource "aws_cloudwatch_event_connection" "clusterra" {
-  name               = "clusterra-events-${var.cluster_id}"
-  description        = "Connection to Clusterra API for node events"
-  authorization_type = "API_KEY"
+# Archive the forwarder script
+data "archive_file" "forwarder_zip" {
+  type        = "zip"
+  source_file = "${path.module}/scripts/event_forwarder.py"
+  output_path = "${path.module}/generated/event_forwarder.zip"
+}
 
-  auth_parameters {
-    api_key {
-      key   = "X-Cluster-ID"
-      value = var.cluster_id
+# Forwarder Lambda Function
+resource "aws_lambda_function" "forwarder" {
+  function_name    = "clusterra-forwarder-${var.cluster_id}"
+  filename         = data.archive_file.forwarder_zip.output_path
+  source_code_hash = data.archive_file.forwarder_zip.output_base64sha256
+  handler          = "event_forwarder.handler"
+  runtime          = "python3.11"
+  role             = aws_iam_role.forwarder.arn
+  timeout          = 30
+  memory_size      = 128
+
+  environment {
+    variables = {
+      CLUSTER_ID   = var.cluster_id
+      TENANT_ID    = var.tenant_id
+      CLUSTER_NAME = var.cluster_name
+      SAAS_BUS_ARN = "arn:aws:events:${var.clusterra_region}:${var.clusterra_account_id}:event-bus/${var.clusterra_bus_name}"
     }
   }
 }
 
-# EventBridge API Destination (targets Clusterra API)
-resource "aws_cloudwatch_event_api_destination" "clusterra" {
-  name                             = "clusterra-events-${var.cluster_id}"
-  description                      = "Send node events to Clusterra API"
-  invocation_endpoint              = "https://${var.clusterra_api_endpoint}/v1/internal/events"
-  http_method                      = "POST"
-  invocation_rate_limit_per_second = 100
-  connection_arn                   = aws_cloudwatch_event_connection.clusterra.arn
+# IAM Role for Forwarder Lambda
+resource "aws_iam_role" "forwarder" {
+  name = "clusterra-forwarder-${var.cluster_id}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+    }]
+  })
 }
 
-# CloudWatch Rule for EC2/ASG events
-resource "aws_cloudwatch_event_rule" "node_events" {
-  name        = "clusterra-node-events-${var.cluster_id}"
-  description = "Capture EC2 and ASG events for Clusterra"
+# IAM Policy for Forwarder (PutEvents + DescribeTags)
+resource "aws_iam_role_policy" "forwarder_policy" {
+  name = "clusterra-forwarder-policy-${var.cluster_id}"
+  role = aws_iam_role.forwarder.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["events:PutEvents"]
+        Resource = "arn:aws:events:${var.clusterra_region}:${var.clusterra_account_id}:event-bus/${var.clusterra_bus_name}"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["ec2:DescribeTags"]
+        Resource = "*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
+        Resource = "arn:aws:logs:*:*:*"
+      }
+    ]
+  })
+}
+
+# CloudWatch Rule for EC2 Events (Filtered by Lambda)
+resource "aws_cloudwatch_event_rule" "ec2_events" {
+  name        = "clusterra-ec2-events-${var.cluster_id}"
+  description = "Capture EC2 state changes for Clusterra Forwarder"
 
   event_pattern = jsonencode({
     source = ["aws.ec2", "aws.autoscaling"]
@@ -542,74 +595,47 @@ resource "aws_cloudwatch_event_rule" "node_events" {
       "EC2 Spot Instance Interruption Warning"
     ]
   })
-
-  tags = {
-    Name      = "clusterra-node-events-${var.cluster_id}"
-    ManagedBy = "OpenTOFU"
-    ClusterId = var.cluster_id
-  }
 }
 
-# Target: Send events to API Destination with input transformer
-resource "aws_cloudwatch_event_target" "to_clusterra" {
-  rule      = aws_cloudwatch_event_rule.node_events.name
-  target_id = "clusterra-api"
-  arn       = aws_cloudwatch_event_api_destination.clusterra.arn
-  role_arn  = aws_iam_role.eventbridge.arn
+# CloudWatch Rule for Slurm Events (From local default bus)
+resource "aws_cloudwatch_event_rule" "slurm_events" {
+  name        = "clusterra-slurm-events-${var.cluster_id}"
+  description = "Capture Slurm hook events for Clusterra Forwarder"
 
-  # Input transformer enriches events with cluster_id and tenant_id
-  input_transformer {
-    input_paths = {
-      detail      = "$.detail"
-      detail_type = "$.detail-type"
-      source      = "$.source"
-      time        = "$.time"
-    }
-    input_template = <<EOF
-{
-  "cluster_id": "${var.cluster_id}",
-  "tenant_id": "${var.tenant_id}",
-  "source": <source>,
-  "detail-type": <detail_type>,
-  "time": <time>,
-  "detail": <detail>
-}
-EOF
-  }
-}
-
-# IAM Role for EventBridge to invoke API Destination
-resource "aws_iam_role" "eventbridge" {
-  name = "clusterra-eventbridge-${var.cluster_id}"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = { Service = "events.amazonaws.com" }
-      Action    = "sts:AssumeRole"
-    }]
+  event_pattern = jsonencode({
+    source = ["clusterra.slurm"]
   })
-
-  tags = {
-    Name      = "clusterra-eventbridge-${var.cluster_id}"
-    ManagedBy = "OpenTOFU"
-    ClusterId = var.cluster_id
-  }
 }
 
-resource "aws_iam_role_policy" "eventbridge_invoke" {
-  name = "invoke-api-destination"
-  role = aws_iam_role.eventbridge.id
+# Target: Forwarder Lambda (EC2 Events)
+resource "aws_cloudwatch_event_target" "ec2_to_forwarder" {
+  rule      = aws_cloudwatch_event_rule.ec2_events.name
+  target_id = "clusterra-forwarder-ec2"
+  arn       = aws_lambda_function.forwarder.arn
+}
 
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["events:InvokeApiDestination"]
-      Resource = aws_cloudwatch_event_api_destination.clusterra.arn
-    }]
-  })
+# Target: Forwarder Lambda (Slurm Events)
+resource "aws_cloudwatch_event_target" "slurm_to_forwarder" {
+  rule      = aws_cloudwatch_event_rule.slurm_events.name
+  target_id = "clusterra-forwarder-slurm"
+  arn       = aws_lambda_function.forwarder.arn
+}
+
+# Allow EventBridge to invoke Lambda
+resource "aws_lambda_permission" "allow_eventbridge_ec2" {
+  statement_id  = "AllowExecutionFromEventBridgeEC2"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.forwarder.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.ec2_events.arn
+}
+
+resource "aws_lambda_permission" "allow_eventbridge_slurm" {
+  statement_id  = "AllowExecutionFromEventBridgeSlurm"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.forwarder.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.slurm_events.arn
 }
 
 # ─────────────────────────────────────────────────────────────────────────────

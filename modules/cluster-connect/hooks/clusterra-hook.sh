@@ -22,39 +22,27 @@ if [[ -z "${CLUSTER_ID:-}" || -z "${TENANT_ID:-}" ]]; then
     exit 0
 fi
 
-# Get API endpoint from environment or use default
-API_ENDPOINT="${CLUSTERRA_API_ENDPOINT:-api.clusterra.cloud}"
-
-# Build JSON event payload
+# Build JSON event payload for PutEvents
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-PAYLOAD=$(cat <<EOF
-{
-  "cluster_id": "$CLUSTER_ID",
-  "tenant_id": "$TENANT_ID",
-  "source": "clusterra.slurm",
-  "detail-type": "$EVENT_TYPE",
-  "time": "$TIMESTAMP",
-  "detail": {
-    "job_id": "${SLURM_JOB_ID:-}",
-    "user": "${SLURM_JOB_USER:-}",
-    "partition": "${SLURM_JOB_PARTITION:-}",
-    "node": "${SLURMD_NODENAME:-}",
-    "exit_code": "${SLURM_JOB_EXIT_CODE:-}",
-    "state": "${SLURM_JOB_STATE:-}",
-    "nodes": "${SLURM_JOB_NODELIST:-}"
+
+# Construct JSON entries for aws events put-events
+# escaping quotes for bash string
+ENTRIES=$(cat <<EOF
+[
+  {
+    "Time": "$TIMESTAMP",
+    "Source": "clusterra.slurm",
+    "Resources": [],
+    "DetailType": "$EVENT_TYPE",
+    "Detail": "{\"job_id\": \"${SLURM_JOB_ID:-}\", \"user\": \"${SLURM_JOB_USER:-}\", \"partition\": \"${SLURM_JOB_PARTITION:-}\", \"node\": \"${SLURMD_NODENAME:-}\", \"exit_code\": \"${SLURM_JOB_EXIT_CODE:-}\", \"state\": \"${SLURM_JOB_STATE:-}\", \"nodes\": \"${SLURM_JOB_NODELIST:-}\"}"
   }
-}
+]
 EOF
 )
 
-# Fire-and-forget: curl runs in background
-# No authentication needed - public API endpoint
-(curl -s -X POST \
-  -H "Content-Type: application/json" \
-  -H "X-Cluster-ID: $CLUSTER_ID" \
-  -d "$PAYLOAD" \
-  "https://${API_ENDPOINT}/v1/internal/events" \
-  -o /dev/null 2>/dev/null) &
+# Fire-and-forget: aws runs in background
+# Requires 'events:PutEvents' permission on Head Node Role
+(aws events put-events --entries "$ENTRIES" --region "${AWS_REGION:-$(aws configure get region)}" >/dev/null 2>&1) &
 
-# Exit immediately - don't wait for curl
+# Exit immediately - don't wait
 exit 0

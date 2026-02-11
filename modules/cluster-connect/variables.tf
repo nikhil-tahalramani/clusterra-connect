@@ -52,7 +52,19 @@ variable "tenant_id" {
 }
 
 variable "clusterra_api_endpoint" {
-  description = "Clusterra API endpoint for EventBridge (e.g., api.clusterra.cloud)"
+  description = "Clusterra API endpoint (e.g., api.clusterra.cloud) - DEPRECATED for events, used for other calls?"
   type        = string
   default     = "api.clusterra.cloud"
+}
+
+variable "clusterra_region" {
+  description = "Region where Clusterra SaaS runs"
+  type        = string
+  default     = "ap-south-1"
+}
+
+variable "clusterra_bus_name" {
+  description = "Name of the Clusterra SaaS Event Bus"
+  type        = string
+  default     = "clusterra"
 }
