@@ -532,10 +532,11 @@ resource "aws_lambda_function" "forwarder" {
 
   environment {
     variables = {
-      CLUSTER_ID   = var.cluster_id
-      TENANT_ID    = var.tenant_id
-      CLUSTER_NAME = var.cluster_name
-      SAAS_BUS_ARN = "arn:aws:events:${var.clusterra_region}:${var.clusterra_account_id}:event-bus/${var.clusterra_bus_name}"
+      CLUSTER_ID            = var.cluster_id
+      TENANT_ID             = var.tenant_id
+      CLUSTER_NAME          = var.cluster_name
+      HEAD_NODE_INSTANCE_ID = var.head_node_instance_id
+      SAAS_BUS_ARN          = "arn:aws:events:${var.clusterra_region}:${var.clusterra_account_id}:event-bus/${var.clusterra_bus_name}"
     }
   }
 }
@@ -581,19 +582,14 @@ resource "aws_iam_role_policy" "forwarder_policy" {
   })
 }
 
-# CloudWatch Rule for EC2 Events (Filtered by Lambda)
+# CloudWatch Rule for Infra Events (EC2, ASG, Fleet, Spot)
+# Broad capture — the Lambda filters by cluster tag and classifies as cluster/node
 resource "aws_cloudwatch_event_rule" "ec2_events" {
-  name        = "clusterra-ec2-events-${var.cluster_id}"
-  description = "Capture EC2 state changes for Clusterra Forwarder"
+  name        = "clusterra-infra-events-${var.cluster_id}"
+  description = "Capture infrastructure events for Clusterra Forwarder"
 
   event_pattern = jsonencode({
-    source = ["aws.ec2", "aws.autoscaling"]
-    detail-type = [
-      "EC2 Instance State-change Notification",
-      "EC2 Instance Launch Successful",
-      "EC2 Instance Terminate Successful",
-      "EC2 Spot Instance Interruption Warning"
-    ]
+    source = ["aws.ec2", "aws.autoscaling", "aws.ec2fleet", "aws.ec2spotfleet"]
   })
 }
 
