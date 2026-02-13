@@ -216,6 +216,51 @@ resource "aws_rds_cluster_instance" "slurm_db_instance" {
 }
 
 
+# ─── Clusterra Integration Variables ───────────────────────────────────────
+
+variable "cluster_id" {
+  description = "Clusterra cluster ID"
+  type        = string
+}
+
+variable "tenant_id" {
+  description = "Clusterra tenant ID"
+  type        = string
+}
+
+variable "clusterra_account_id" {
+  description = "Clusterra AWS Account ID"
+  type        = string
+}
+
+variable "clusterra_region" {
+  description = "Clusterra AWS Region"
+  type        = string
+  default     = "ap-south-1"
+}
+
+# ─── IAM Policies for Compute Nodes ────────────────────────────────────────
+
+resource "aws_iam_policy" "iot_publish" {
+  name        = "clusterra-iot-publish-${var.cluster_name}"
+  description = "Allow Compute Nodes to publish logs to Clusterra IoT Core"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "IoTPublishLogs"
+        Effect = "Allow"
+        Action = [
+          "iot:Connect",
+          "iot:Publish"
+        ]
+        Resource = "arn:aws:iot:${var.clusterra_region}:${var.clusterra_account_id}:topic/clusterra/${var.tenant_id}/${var.cluster_id}/logs/*"
+      }
+    ]
+  })
+}
+
 # ─── Cluster Configuration ─────────────────────────────────────────────────
 
 locals {
@@ -229,6 +274,11 @@ locals {
     { Policy = "arn:aws:iam::aws:policy/SecretsManagerReadWrite" }, # Needed for DB password
     { Policy = "arn:aws:iam::aws:policy/AmazonSQSFullAccess" }
   ]
+
+  # Compute nodes need common IAM + IoT Publish for logs
+  compute_iam = concat(local.common_iam, [
+    { Policy = aws_iam_policy.iot_publish.arn }
+  ])
 
   cluster_config = yamlencode({
     Region = var.region
@@ -285,6 +335,7 @@ locals {
           ]
           CapacityType = "SPOT"
           Networking   = { SubnetIds = [var.subnet_id] }
+          Iam          = { AdditionalIamPolicies = local.compute_iam }
         },
         # 2. GPU Queue (ML Training)
         {
@@ -305,6 +356,7 @@ locals {
           ]
           CapacityType = "SPOT"
           Networking   = { SubnetIds = [var.subnet_id] }
+          Iam          = { AdditionalIamPolicies = local.compute_iam }
         },
         # 3. Memory Queue (EDA)
         {
@@ -325,6 +377,7 @@ locals {
           ]
           CapacityType = "SPOT"
           Networking   = { SubnetIds = [var.subnet_id] }
+          Iam          = { AdditionalIamPolicies = local.compute_iam }
         },
         # 4. On-Demand Queue (Critical Workloads)
         {
@@ -351,6 +404,7 @@ locals {
           ]
           CapacityType = "ONDEMAND"
           Networking   = { SubnetIds = [var.subnet_id] }
+          Iam          = { AdditionalIamPolicies = local.compute_iam }
         }
       ]
     }

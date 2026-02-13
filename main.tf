@@ -139,6 +139,12 @@ module "parallelcluster" {
   min_count               = var.min_count
   max_count               = var.max_count
   secondary_subnet_id     = var.secondary_subnet_id
+
+  # Clusterra Integration
+  cluster_id           = var.cluster_id
+  tenant_id            = var.tenant_id
+  clusterra_account_id = var.clusterra_account_id
+  clusterra_region     = var.clusterra_region
 }
 
 
@@ -149,6 +155,12 @@ variable "clusterra_account_id" {
   description = "Clusterra's AWS account ID for cross-account access"
   type        = string
   default     = "493245399820" # Default to Prod if not specified
+}
+
+variable "clusterra_region" {
+  description = "Clusterra AWS Region"
+  type        = string
+  default     = "ap-south-1"
 }
 
 module "connectivity" {

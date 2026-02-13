@@ -8,6 +8,7 @@ variable "cluster_name" {
   type        = string
 }
 
+
 variable "vpc_id" {
   description = "VPC ID where the head node runs"
   type        = string

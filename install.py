@@ -427,7 +427,7 @@ def phase_2a_connect_infra(
             "[dim]SSM policy attached, agent registering in background...[/dim]"
         )
 
-    # 3. Update tfvars with this ID (so Tofu knows about it)
+    # 4. Update tfvars with this ID (so Tofu knows about it)
     update_tfvars({"head_node_instance_id": head_node_id})
 
     # 4. Run Tofu apply (takes ~5 min, SSM registers in parallel)
