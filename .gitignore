@@ -38,3 +38,4 @@ test_api_connection.py
 response.json
 response_payload.json
 modules/cluster-connect/.terraform.lock.hcl
+modules/cluster-connect/.DS_Store

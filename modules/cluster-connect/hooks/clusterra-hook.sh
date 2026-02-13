@@ -42,9 +42,7 @@ ENTRIES=$(cat <<EOF
 EOF
 )
 
-# Fire-and-forget: aws runs in background
-# Requires 'events:PutEvents' permission on Head Node Role
-(aws events put-events --entries "$ENTRIES" --region "${AWS_REGION:-$(aws configure get region)}" >/dev/null 2>&1) &
+# Send event synchronously - this script is already backgrounded by the caller
+aws events put-events --entries "$ENTRIES" --region "${AWS_REGION:-ap-south-1}" >/dev/null 2>&1
 
-# Exit immediately - don't wait
 exit 0
