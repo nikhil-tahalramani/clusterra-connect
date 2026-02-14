@@ -884,10 +884,16 @@ def phase_3_events_hooks(
 
     head_node_id = get_head_node_id(cluster_name, session)
 
-    # Pass cluster_id, tenant_id, api_endpoint to curl-based hook installer (v4)
-    args = [cluster_id, tenant_id, api_endpoint]
+    # Construct EventBridge bus ARN for cross-account PutEvents from head node
+    region = session.region_name or "ap-south-1"
+    event_bus_arn = (
+        f"arn:aws:events:{region}:{CLUSTERRA_SERVICE_ACCOUNT_ID}:event-bus/clusterra"
+    )
 
-    # Upload hooks directory and run install-hooks.sh with new arguments
+    # install-hooks.sh expects: <cluster_id> <tenant_id> <event_bus_arn> [api_endpoint]
+    args = [cluster_id, tenant_id, event_bus_arn, api_endpoint]
+
+    # Upload hooks directory and run install-hooks.sh
     return run_ssm_script_package(
         head_node_id, "modules/cluster-connect/hooks", "install-hooks.sh", args, session
     )
@@ -1015,7 +1021,7 @@ def run_ssm_script(
     if success:
         console.print("[green]✓ Script executed successfully[/green]")
         if output and output.strip():
-            console.print(f"[dim]{output[:500]}[/dim]")  # Show first 500 chars
+            console.print(f"[dim]{output[:5000]}[/dim]")  # Show first 5000 chars
         return True
     else:
         console.print("[red]❌ Script execution failed[/red]")
@@ -1072,7 +1078,7 @@ def run_ssm_script_package(
     if success:
         console.print("[green]✓ Package executed successfully[/green]")
         if output and output.strip():
-            console.print(f"[dim]{output[:500]}[/dim]")
+            console.print(f"[dim]{output[:5000]}[/dim]")
         return True
     else:
         console.print("[red]❌ Package execution failed[/red]")
@@ -1282,7 +1288,28 @@ def gather_inputs(session: boto3.Session):
 
         # Check if we have one already
         existing_cid = existing_vars.get("cluster_id")
-        if existing_cid:
+
+        if scenario == "new":
+            # FORCE FRESH ID for New Cluster - Ignore existing tfvars to avoid stale config bugs
+            # (User explicitly asked for "New Cluster")
+            if existing_cid:
+                console.print(
+                    f"[yellow]⚠ Found existing configuration for {existing_cid} in tfvars.[/yellow]"
+                )
+                console.print(
+                    "[yellow]  Since you selected 'New Cluster', we will IGNORE the old config and generate a FRESH ID.[/yellow]"
+                )
+                # Clear stale vars that might cause persistence issues
+                existing_vars.pop("cluster_id", None)
+                existing_vars.pop("cluster_name", None)
+                existing_vars.pop("registered", None)
+                existing_vars.pop("head_node_instance_id", None)
+                existing_cid = None
+
+            cluster_id = f"clus{uuid.uuid4().hex[:4]}"
+            console.print(f"[cyan]Generated FRESH cluster ID: {cluster_id}[/cyan]")
+
+        elif existing_cid:
             cluster_id = existing_cid
         else:
             cluster_id = f"clus{uuid.uuid4().hex[:4]}"

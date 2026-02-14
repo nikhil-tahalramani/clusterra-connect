@@ -157,7 +157,7 @@ fi
 echo "Creating default Slurm account..."
 sacctmgr -i add account clusterra_default Description="Clusterra default account" 2>/dev/null || true
 
-# 7. Give slurmrestd user access to JWT key
+# 7. Ensure both slurm (slurmctld) and slurmrestd can read JWT key
 sudo chown slurm:slurmrestd "$JWT_KEY_PATH"
 sudo chmod 640 "$JWT_KEY_PATH"
 

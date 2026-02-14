@@ -305,6 +305,14 @@ locals {
       }
     }
 
+    SharedStorage = [
+      {
+        MountDir    = "/shared"
+        Name        = "shared-fs"
+        StorageType = "Efs"
+      }
+    ]
+
     Scheduling = {
       Scheduler = "slurm"
       SlurmSettings = {

@@ -489,13 +489,22 @@ resource "aws_iam_role_policy" "ssm_access" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "SSMSendCommand"
+        Sid    = "SSMSendCommandDocument"
         Effect = "Allow"
         Action = [
           "ssm:SendCommand"
         ]
         Resource = [
-          "arn:aws:ssm:*:*:document/AWS-RunShellScript",
+          "arn:aws:ssm:*:*:document/AWS-RunShellScript"
+        ]
+      },
+      {
+        Sid    = "SSMSendCommandInstance"
+        Effect = "Allow"
+        Action = [
+          "ssm:SendCommand"
+        ]
+        Resource = [
           "arn:aws:ec2:*:*:instance/*"
         ]
         Condition = {

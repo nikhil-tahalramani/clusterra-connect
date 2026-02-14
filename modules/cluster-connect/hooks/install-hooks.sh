@@ -29,6 +29,18 @@ SLURM_CONF="/opt/slurm/etc/slurm.conf"
 
 echo "=== Installing Clusterra Hooks (v5 - EventBridge) ==="
 
+# 0. Allow 'slurm' user (UID 401) to access IMDS (Required for IAM role assumption)
+# ParallelCluster blocks non-root/pcluster-admin users by default.
+echo "Configuring IMDS access for slurm user..."
+if ! sudo iptables -C PARALLELCLUSTER_IMDS -d 169.254.169.254 -m owner --uid-owner 401 -j ACCEPT 2>/dev/null; then
+    sudo iptables -I PARALLELCLUSTER_IMDS 1 -d 169.254.169.254 -m owner --uid-owner 401 -j ACCEPT
+    echo " - Added iptables rule for UID 401"
+else
+    echo " - iptables rule already exists"
+fi
+# Note: Ideally this should be persisted via ParallelCluster config or netfilter-persistent,
+# but for now we apply it at runtime. It may be lost on reboot if not persisted.
+
 # 1. Create directory
 sudo mkdir -p "$CLUSTERRA_DIR"
 
