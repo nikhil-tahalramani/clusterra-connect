@@ -72,6 +72,12 @@ variable "ssh_key_name" {
   default     = "clusterra-headnode-key"
 }
 
+variable "ssh_key_path" {
+  description = "Path to the private SSH key"
+  type        = string
+  default     = "~/.ssh/id_ed25519"
+}
+
 variable "min_count" {
   description = "Min compute nodes"
   type        = number
@@ -103,6 +109,18 @@ variable "tenant_id" {
   default     = ""
 }
 
+variable "slurmctld_host" {
+  description = "Public IP or DNS of the central slurmctld/slurmrestd host (Dev cluster)"
+  type        = string
+  default     = ""
+}
+
+variable "slurmrestd_port" {
+  description = "NodePort exposing slurmrestd on the central Dev cluster"
+  type        = number
+  default     = 30767
+}
+
 variable "clusterra_api_url" {
   description = "Clusterra API URL"
   type        = string
@@ -118,6 +136,12 @@ variable "head_node_instance_id" {
 variable "clusterra_service_network_id" {
   description = "Clusterra's VPC Lattice Service Network ID (from Control Plane)"
   type        = string
+}
+
+variable "prometheus_endpoint" {
+  description = "Public URL of the central Prometheus server"
+  type        = string
+  default     = ""
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -145,6 +169,20 @@ module "parallelcluster" {
   tenant_id            = var.tenant_id
   clusterra_account_id = var.clusterra_account_id
   clusterra_region     = var.clusterra_region
+}
+
+module "customer_cluster" {
+  count = var.deploy_new_cluster ? 0 : 1
+
+  source = "./modules/customer-cluster"
+
+  cluster_name  = var.cluster_name
+  region        = var.region
+  vpc_id        = var.vpc_id
+  subnet_id     = var.subnet_id
+  ssh_key_name  = var.ssh_key_name
+  instance_type = var.head_node_instance_type
+  enable_spot   = false
 }
 
 
@@ -176,6 +214,23 @@ module "connectivity" {
   head_node_instance_id        = var.head_node_instance_id
   clusterra_service_network_id = var.clusterra_service_network_id
   clusterra_account_id         = var.clusterra_account_id
+}
+
+module "scaling" {
+  count = var.deploy_new_cluster ? 0 : 1 # Assuming scaling is currently for K3s (customer-cluster) not ParallelCluster
+
+  source = "./modules/scaling"
+
+  cluster_name                        = var.cluster_name
+  cluster_endpoint                    = module.customer_cluster[0].cluster_endpoint
+  head_node_public_ip                 = module.customer_cluster[0].customer_cluster_ip
+  karpenter_node_role_name            = module.customer_cluster[0].karpenter_node_role_name
+  ssh_key_path                        = var.ssh_key_path
+  slurmctld_host                      = var.slurmctld_host  # Dev cluster public IP or Lattice DNS
+  slurmrestd_port                     = var.slurmrestd_port # Defaults to 30767
+  prometheus_endpoint                 = var.prometheus_endpoint
+  tenant_id                           = var.tenant_id
+  prometheus_bearer_token_secret_name = "clusterra-prom-token-${var.tenant_id}"
 }
 
 # NOTE: Events (EventBridge) are now integrated into module.connectivity

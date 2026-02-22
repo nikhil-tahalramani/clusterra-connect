@@ -1,0 +1,15 @@
+# slurm-operator Helm values for customer cluster deployment.
+# This installs ONLY the operator binary — no slurmctld, no slurmd.
+# The operator will manage NodeSets pointed at the external central slurmctld.
+
+operator:
+  enabled: true
+  replicas: 1
+  logLevel: info
+
+# CRDs are managed by this chart separately.
+crds:
+  enabled: false
+
+telemetry:
+  enabled: false

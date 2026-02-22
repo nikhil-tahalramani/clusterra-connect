@@ -150,30 +150,20 @@ data "aws_ec2_managed_prefix_list" "vpc_lattice" {
   }
 }
 
-# Find the existing Head Node Security Group created by ParallelCluster
-data "aws_security_group" "head_node" {
-  count = local.target_instance_id != null ? 1 : 0
-  filter {
-    name   = "tag:parallelcluster:cluster-name"
-    values = [var.cluster_name]
-  }
-  filter {
-    name   = "tag:aws:cloudformation:logical-id"
-    values = ["HeadNodeSecurityGroup"]
-  }
-}
-
 # Inject Ingress Rule for VPC Lattice into the EXISTING Head Node SG
 resource "aws_security_group_rule" "lattice_ingress" {
-  count = length(data.aws_security_group.head_node) > 0 ? 1 : 0
+  count = local.target_instance_id != null ? 1 : 0
 
-  type              = "ingress"
-  from_port         = var.slurm_api_port
-  to_port           = var.slurm_api_port
-  protocol          = "tcp"
-  prefix_list_ids   = [data.aws_ec2_managed_prefix_list.vpc_lattice.id]
-  security_group_id = data.aws_security_group.head_node[0].id
-  description       = "Allow slurmrestd traffic from VPC Lattice (Clusterra)"
+  type            = "ingress"
+  from_port       = var.slurm_api_port
+  to_port         = var.slurm_api_port
+  protocol        = "tcp"
+  prefix_list_ids = [data.aws_ec2_managed_prefix_list.vpc_lattice.id]
+
+  # Attach to the primary security group of the instance, regardless of how it was created
+  security_group_id = tolist(data.aws_instance.head_node[0].vpc_security_group_ids)[0]
+
+  description = "Allow slurmrestd traffic from VPC Lattice (Clusterra)"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────

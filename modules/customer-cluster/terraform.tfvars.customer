@@ -1,0 +1,7 @@
+cluster_name  = "clusterra-customer-compute"
+region        = "ap-south-1"
+vpc_id        = "vpc-5f392937"
+subnet_id     = "subnet-ce4ffeb5"
+ssh_key_name  = "demo"
+instance_type = "t4g.small"
+enable_spot   = true

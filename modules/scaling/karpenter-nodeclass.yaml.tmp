@@ -1,0 +1,20 @@
+apiVersion: karpenter.k8s.aws/v1beta1
+kind: EC2NodeClass
+metadata:
+  name: default
+spec:
+  amiFamily: Custom
+  amiSelectorTerms:
+    - id: "${AMI_ID}" # Injected by bash string replacement in the setup script
+  role: "clusterra-clusd17f-karpenter-node-role"
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "clusterra-clusd17f"
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "clusterra-clusd17f"
+  tags:
+    Name: "clusterra-clusd17f-worker"
+  userData: |
+    #!/bin/bash
+    curl -sfL https://get.k3s.io | K3S_URL=${CLUSTER_ENDPOINT} K3S_TOKEN=${K3S_TOKEN} sh -
